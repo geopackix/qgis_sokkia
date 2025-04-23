@@ -23,7 +23,7 @@
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant, QDateTime
 from qgis.PyQt.QtGui import QIcon
-
+import os
 
 from datetime import datetime
 from qgis.gui import QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint
@@ -110,13 +110,20 @@ class QGISSokkia:
         self.laserState = False
         self.target = 2
         self.targetPrismConstant = 0
+        self.targetHeight = 0
+        self.sp = {"ID": "SP1", "RECHTS": 0, "HOCH":0, "H": 0, "ih": 0}             #standpunkt
+        self.measureValues = {"ha": 0, "za": 0, "sd": 0}        #Messungen
+        
+        
+        
         
         #remove_all_rubber_bands(self.canvas)
         #self.rubber_band = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
         
-        #Messlayer
-        
+        #Layer
         self.mlayer = None
+        self.splayer = None
+        
 
 
 
@@ -266,8 +273,6 @@ class QGISSokkia:
             
             time.sleep(1)
             
-            
-            
             if self.serial.is_open:
                 print("Connection established successfully!")
                 self.serialthread = threading.Thread(target=self.readSerial)
@@ -276,23 +281,25 @@ class QGISSokkia:
                 
                 self.periodicThread = threading.Thread(target=self.sendPeriodicAngleMeasureCommand)
                 self.periodicThread.daemon = True
-                self.periodicThread.start()
+                #self.periodicThread.start()
                 
 
                 # add temp layer with layername
                 self.addTempLayer(f"Messungen-{datetime.now().strftime('%d%m%y-%H%M')}")
+                self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
                 
                 self.dockwidget.btn_connect.setEnabled(False)
                 self.dockwidget.btn_disconnect.setEnabled(True)
                 self.dockwidget.btn_laser.setEnabled(True)      #enable laser button
                 self.dockwidget.btn_measure.setEnabled(True)
-                self.dockwidget.btn_mesaure_a.setEnabled(True)
+                self.dockwidget.btn_measure_a.setEnabled(True)
                 self.dockwidget.btn_measure_stop.setEnabled(True)
-                self.dockwidget.btn_setTraget.setEnabled(True)
+                self.dockwidget.btn_setTarget.setEnabled(True)
             
             
                 # Layer zur Karte hinzufügen
                 QgsProject.instance().addMapLayer(self.mlayer)
+                QgsProject.instance().addMapLayer(self.splayer)
             else:
                 raise Exception('Serielle verbindung fehlgeschlagen')
         
@@ -319,10 +326,31 @@ class QGISSokkia:
         calc_x = QgsField('calc_x', QVariant.Double)
         calc_y = QgsField('calc_y', QVariant.Double)
         calc_z = QgsField('calc_z', QVariant.Double)
+        prismConst = QgsField('prism_const', QVariant.Double)
         
-        self.mlayer.dataProvider().addAttributes([attr_pkno,attr_sp,attr_datetime,attr_ih,attr_th,attr_messung_sd,attr_messung_za,attr_messung_ha, calc_hd, calc_x, calc_y, calc_z])
+        qml_file = f'{self.plugin_dir}/messung.qml'
+        self.mlayer.loadNamedStyle(qml_file)
         
-        self.mlayer.updateFields()   
+        self.mlayer.dataProvider().addAttributes([attr_pkno,attr_sp,attr_datetime,attr_ih,attr_th,attr_messung_sd,attr_messung_za,attr_messung_ha, calc_hd, calc_x, calc_y, calc_z,prismConst])
+        
+        self.mlayer.updateFields() 
+        
+    
+    def addSpTempLayer(self, name):
+        
+        self.splayer = QgsVectorLayer("Point?crs=EPSG:25832", name, "memory")
+        
+        attr_pkno = QgsField('Punktnummer', QVariant.String)
+        attr_datetime = QgsField('Recordtime', QVariant.DateTime)
+        attr_ih = QgsField('ih', QVariant.Double)
+        x = QgsField('x', QVariant.Double)
+        y = QgsField('y', QVariant.Double)
+        z = QgsField('z', QVariant.Double)
+        
+        qml_file = f'{self.plugin_dir}/sp.qml'
+        self.splayer.loadNamedStyle(qml_file)
+        self.splayer.dataProvider().addAttributes([attr_pkno,attr_datetime,attr_ih,x,y,z])
+        self.splayer.updateFields()  
         
     def sendPeriodicAngleMeasureCommand(self):
         while not self.serialPeriodicEvent.is_set() and self.serial.is_open:
@@ -330,8 +358,6 @@ class QGISSokkia:
             self.serial.write(command)
             time.sleep(1)
 
-        
-    
     def disconnectFromSerial(self):
         print("disconnect from serial");
         self.serialStopEvent.set()
@@ -342,53 +368,60 @@ class QGISSokkia:
         self.dockwidget.btn_disconnect.setEnabled(False)
         self.dockwidget.btn_laser.setEnabled(False)      #enable laser button
         self.dockwidget.btn_measure.setEnabled(False)
-        self.dockwidget.btn_mesaure_a.setEnabled(False)
+        self.dockwidget.btn_measure_a.setEnabled(False)
         self.dockwidget.btn_measure_stop.setEnabled(False)
-        self.dockwidget.btn_setTraget.setEnabled(False)
+        self.dockwidget.btn_setTarget.setEnabled(False)
     
         
             
     def readSerial(self):
         print("[thread] reading from serial")
+        
+        def parse_and_format_string(input_string):
+            # Decode the input string
+            decoded_string = input_string.decode('utf-8').strip()
+            decoded_string = decoded_string.replace("\x15", "")
+
+            # Split the string into individual numbers
+            numbers = decoded_string.split()
+
+            # Insert a decimal point at the third position of each number
+            formatted_numbers = [number[:3] + '.' + number[3:] for number in numbers]
+
+            return formatted_numbers
+        
         while not self.serialStopEvent.is_set() and self.serial.is_open:
             try:
-                data = self.serial.read(128)
-                
+                data = self.serial.readline()       #self.serial.read(128)
+                print(data)
                 if data:
                     
-                    print(data)
+                    parsedData = parse_and_format_string(data)
+                    print(parsedData)
                     
-                    # Byte-String in einen regulären String dekodieren
-                    decoded_string = data.decode('utf-8')
-
-                    # String nach Leerzeichen aufteilen, um die Werte zu extrahieren
-                    values = decoded_string.split(' ')
+                    sd = float(parsedData[0])
+                    za = float(parsedData[1])
+                    ha = float(parsedData[2])
                     
-                    def convertNumbers(data):
-                        data = data.replace("\x15", "")
-                        return float(data[0:3] + '.' + data[3:])  
                     
-                    sd = convertNumbers(values[0])
-                    za = convertNumbers(values[1])
-                    ha = convertNumbers(values[2])
-                    
-                    if(sd and za and ha):
-                        if sd > 0:   #streckenmessung
-                            print(f"SD: {sd} ZA: {za} HA: {ha}")
-                            self.addMPoint(sd,za,ha)
-                        else:
-                            print(f"SD: {sd} ZA: {za} HA: {ha}")
-                        
-                        
-                
-                    
-                
+                    if sd > 0:   #streckenmessung
+                        print(f"SD: {sd} ZA: {za} HA: {ha}")
+                        self.measureValues['ha'] = ha
+                        self.measureValues['za'] = za
+                        self.measureValues['sd'] = sd
+                        self.addMPoint(sd,za,ha)
+                    else:
+                        print(f"SD: {sd} ZA: {za} HA: {ha}")   
+                        self.measureValues['ha'] = ha
+                        self.measureValues['za'] = za
+                            
+                    self.dockwidget.lbl_ha.setText('HZ:' + str(f"{self.measureValues['ha']:.4f}") + ' gon')
+                    self.dockwidget.lbl_za.setText('VZ:' + str(f"{self.measureValues['za']:.4f}") + ' gon')
+                    self.dockwidget.lbl_sd.setText('SD:' + str(f"{self.measureValues['sd']:.4f}") + ' m')
     
             except Exception as e:
                 print(e)
-                
-    
-        
+                    
     def addMPoint(self, sd,za,ha):
         
         def increment_last_segment(s):
@@ -410,29 +443,35 @@ class QGISSokkia:
                 
         try:
             hd = sd * math.sin(za*math.pi/200)
-            h_delta = sd * math.cos(za*math.pi/200)
             
-            x = hd  * math.sin(ha*math.pi/200)
-            y = hd * math.cos(ha*math.pi/200)
             
-            print(f"Neuer Punkt X:{x} Y:{y} hdelta:{h_delta}")
+            th = float(self.dockwidget.input_th.text())
+            
+            z = self.sp['H'] + self.sp['ih'] + sd * math.cos(za*math.pi/200) - th 
+            
+            x = self.sp['RECHTS'] + hd  * math.sin(ha*math.pi/200)
+            y = self.sp['HOCH'] + hd * math.cos(ha*math.pi/200)
+            
+            print(f"Neuer Punkt X:{x} Y:{y} Z:{z}")
             
             point = QgsPointXY(x, y) 
             
             
             feature = QgsFeature()
             feature.setGeometry(QgsGeometry.fromPointXY(point))
-            feature.setAttributes([1]) # ID auf 1 setzen
+            #feature.setAttributes([1]) # ID auf 1 setzen
 
             #get properties from UI
-            ih = float(self.dockwidget.input_ih.text())
-            th = float(self.dockwidget.input_th.text())
+            
             prism_constant = float(self.dockwidget.input_prismConstant.text())
-            standpunkt = self.dockwidget.input_standpoint.text()
             targetid = self.dockwidget.input_targetid.text()
             
-            feature.setAttributes([targetid,'SP',QDateTime.currentDateTime(),ih,th,sd,za,ha,hd, x, y, h_delta])
+            feature.setAttributes([targetid,self.sp['ID'],QDateTime.currentDateTime(),self.sp['ih'],th,sd,za,ha,hd, x, y, z, prism_constant])
 
+            #add values to ui
+            self.dockwidget.lbl_calc_x.setText('X:' + str(f"{x:.4f}"))
+            self.dockwidget.lbl_calc_y.setText('Y:' + str(f"{y:.4f}"))
+            self.dockwidget.lbl_calc_z.setText('Z:' + str(f"{z:.4f}"))
 
             #increment target id
             newid = increment_last_segment(targetid)
@@ -447,11 +486,28 @@ class QGISSokkia:
             self.mlayer.triggerRepaint() #re-draw layer
         except Exception as e:
             print(e)
-
-
+    
+    def addStation(self):
+        
+        #self.sp = {"ID": "SP1", "RECHTS": 0, "HOCH":0, "H": 0, "ih": 0}
+        
+        point = QgsPointXY(self.sp["RECHTS"], self.sp["HOCH"]) 
+            
+        feature = QgsFeature()
+        feature.setGeometry(QgsGeometry.fromPointXY(point))
         
 
+        feature.setAttributes([self.sp['ID'],QDateTime.currentDateTime(),self.sp['ih'],self.sp["RECHTS"], self.sp["HOCH"],self.sp["H"]])
+
+
+        self.splayer.dataProvider().addFeature(feature)
+        print('Station gespeichert')
+        
+        self.splayer.updateExtents()
+        self.splayer.triggerRepaint() #re-draw layer
     
+    
+            
     def draw_line(self, theta):
         # Erstelle eine RubberBand-Instanz
         
@@ -528,8 +584,6 @@ class QGISSokkia:
         
         self.serial.write(laser_command)
         
-       
-    
     def selectTarget(self):
         
         vprism = self.dockwidget.radio_prism
@@ -550,19 +604,26 @@ class QGISSokkia:
             self.dockwidget.input_prismConstant.setText(str(self.targetPrismConstant))
         else:
             self.target = 2    
+            
+        
          
     
     def setTarget(self):
         
+        targetType = 'None'
+        
         command = None
         if self.target == 0:
             command = b'/C 0\r\n'   #prism
+            targetType = 'Prisma'
             
         elif self.target == 1:
             command = b'/C 1\r\n'   #sheet
+            targetType = 'Reflexfolie'
             
         else:
             command = b'/C 2\r\n'   #reflectorless
+            targetType = 'Reflektorlos'
             
             
         self.targetPrismConstant = int(self.dockwidget.input_prismConstant.text())
@@ -575,6 +636,11 @@ class QGISSokkia:
         
         self.serial.write(command)  
         self.serial.write(command2) 
+        
+        self.dockwidget.lbl_target.setText(f"Zieltyp: {targetType}, th: {float(self.dockwidget.input_th.text())}, Pismentkonstante: {self.targetPrismConstant}")
+        
+        
+        
         
     def mesaure(self):
         print('Streckenmessung')
@@ -590,6 +656,24 @@ class QGISSokkia:
         print('Messung stoppen')
         command = bytes([0x12])
         self.serial.write(command) 
+        
+    def setSp(self):
+        print('Setze Standpunkt')
+        
+        #get values from ui
+        id = self.dockwidget.input_standpoint.text()
+        x = float(self.dockwidget.input_sp_x.text())
+        y = float(self.dockwidget.input_sp_y.text())
+        z = float(self.dockwidget.input_sp_z.text())
+        ih = float(self.dockwidget.input_ih.text())
+        
+
+        self.sp = {"ID": id, "RECHTS": x, "HOCH":y, "H": z, "ih": ih} 
+        
+        self.addStation()
+
+        self.dockwidget.lbl_sp.setText(f"ID: {self.sp['ID']}, RECHTS: {self.sp['RECHTS']}, HOCH: {self.sp['HOCH']}, H: {self.sp['H']}, ih: {self.sp['ih']}")
+        
     
     #--------------------------------------------------------------------------
 
@@ -624,6 +708,16 @@ class QGISSokkia:
 
             #connect 'select coorinates from Map' btn
             self.dockwidget.btn_select_sp.clicked.connect(self.selectCoordinatesFromMap)
+            self.dockwidget.btn_setSp.clicked.connect(self.setSp)
+            
+            #default values
+            #self.sp = {"ID": "SP1", "RECHTS": 0, "HOCH":0, "H": 0, "ih": 0} 
+            self.dockwidget.input_standpoint.setText(self.sp['ID'])
+            
+            
+            
+            
+            
             
 
             #connect 'toggle Laser from Map' btn

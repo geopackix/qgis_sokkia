@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1327</width>
-    <height>284</height>
+    <height>303</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -146,6 +146,13 @@
             </property>
            </widget>
           </item>
+          <item>
+           <widget class="QLabel" name="lbl_target">
+            <property name="text">
+             <string>Ziel noch nicht gesetzt</string>
+            </property>
+           </widget>
+          </item>
          </layout>
         </widget>
        </item>
@@ -184,6 +191,13 @@
            </property>
           </widget>
          </item>
+         <item>
+          <widget class="QLabel" name="lbl_z">
+           <property name="text">
+            <string>HÖHE: 0.0000</string>
+           </property>
+          </widget>
+         </item>
         </layout>
        </item>
        <item>
@@ -207,6 +221,16 @@
          </item>
          <item>
           <widget class="QLineEdit" name="input_sp_y"/>
+         </item>
+         <item>
+          <widget class="QLabel" name="label_9">
+           <property name="text">
+            <string>Höhe (z) </string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="input_sp_z"/>
          </item>
         </layout>
        </item>
@@ -262,9 +286,16 @@
            </layout>
           </item>
           <item>
-           <widget class="QPushButton" name="btb_setSp">
+           <widget class="QPushButton" name="btn_setSp">
             <property name="text">
              <string>Setze Standpunkt</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_sp">
+            <property name="text">
+             <string>Standpunkt noch nicht gesetzt</string>
             </property>
            </widget>
           </item>
@@ -276,6 +307,18 @@
     </item>
     <item row="0" column="3">
      <widget class="QGroupBox" name="groupBox_6">
+      <property name="minimumSize">
+       <size>
+        <width>350</width>
+        <height>0</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>222</width>
+        <height>16777215</height>
+       </size>
+      </property>
       <property name="title">
        <string>Gerät Einstellungen</string>
       </property>
@@ -285,21 +328,46 @@
          <item>
           <widget class="QLabel" name="lbl_ha">
            <property name="text">
-            <string>Hz: 0.000000 m</string>
+            <string>Hz: 0.0000</string>
            </property>
           </widget>
          </item>
          <item>
           <widget class="QLabel" name="lbl_za">
            <property name="text">
-            <string>V: 0.000000</string>
+            <string>Vz: 0.0000</string>
            </property>
           </widget>
          </item>
          <item>
           <widget class="QLabel" name="lbl_sd">
            <property name="text">
-            <string>Sd: 0.0000</string>
+            <string>Sd: 0.000</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayout_12">
+         <item>
+          <widget class="QLabel" name="lbl_calc_x">
+           <property name="text">
+            <string>X: </string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="lbl_calc_y">
+           <property name="text">
+            <string>Y:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="lbl_calc_z">
+           <property name="text">
+            <string>Z:</string>
            </property>
           </widget>
          </item>
@@ -363,6 +431,12 @@
     </item>
     <item row="0" column="2">
      <widget class="QGroupBox" name="groupBox">
+      <property name="maximumSize">
+       <size>
+        <width>250</width>
+        <height>16777215</height>
+       </size>
+      </property>
       <property name="title">
        <string>Geräte Verbindung</string>
       </property>
