@@ -393,31 +393,35 @@ class QGISSokkia:
         while not self.serialStopEvent.is_set() and self.serial.is_open:
             try:
                 data = self.serial.readline()       #self.serial.read(128)
-                print(data)
+                
                 if data:
+                    print(data)
                     
-                    parsedData = parse_and_format_string(data)
-                    print(parsedData)
-                    
-                    sd = float(parsedData[0])
-                    za = float(parsedData[1])
-                    ha = float(parsedData[2])
-                    
-                    
-                    if sd > 0:   #streckenmessung
-                        print(f"SD: {sd} ZA: {za} HA: {ha}")
-                        self.measureValues['ha'] = ha
-                        self.measureValues['za'] = za
-                        self.measureValues['sd'] = sd
-                        self.addMPoint(sd,za,ha)
+                    if not data.decode('utf-8').startswith('\x06'):
+                        parsedData = parse_and_format_string(data)
+                        print(parsedData)
+                        
+                        sd = float(parsedData[0])
+                        za = float(parsedData[1])
+                        ha = float(parsedData[2])
+                        
+                        
+                        if sd > 0:   #streckenmessung
+                            print(f"SD: {sd} ZA: {za} HA: {ha}")
+                            self.measureValues['ha'] = ha
+                            self.measureValues['za'] = za
+                            self.measureValues['sd'] = sd
+                            self.addMPoint(sd,za,ha)
+                        else:
+                            print(f"SD: {sd} ZA: {za} HA: {ha}")   
+                            self.measureValues['ha'] = ha
+                            self.measureValues['za'] = za
+                                
+                        self.dockwidget.lbl_ha.setText('HZ:' + str(f"{self.measureValues['ha']:.4f}") + ' gon')
+                        self.dockwidget.lbl_za.setText('VZ:' + str(f"{self.measureValues['za']:.4f}") + ' gon')
+                        self.dockwidget.lbl_sd.setText('SD:' + str(f"{self.measureValues['sd']:.4f}") + ' m')
                     else:
-                        print(f"SD: {sd} ZA: {za} HA: {ha}")   
-                        self.measureValues['ha'] = ha
-                        self.measureValues['za'] = za
-                            
-                    self.dockwidget.lbl_ha.setText('HZ:' + str(f"{self.measureValues['ha']:.4f}") + ' gon')
-                    self.dockwidget.lbl_za.setText('VZ:' + str(f"{self.measureValues['za']:.4f}") + ' gon')
-                    self.dockwidget.lbl_sd.setText('SD:' + str(f"{self.measureValues['sd']:.4f}") + ' m')
+                        print('OK')
     
             except Exception as e:
                 print(e)
@@ -673,7 +677,60 @@ class QGISSokkia:
         self.addStation()
 
         self.dockwidget.lbl_sp.setText(f"ID: {self.sp['ID']}, RECHTS: {self.sp['RECHTS']}, HOCH: {self.sp['HOCH']}, H: {self.sp['H']}, ih: {self.sp['ih']}")
+    
+    def control(self, direction, step):
         
+        print("Control totalstation in " + direction + ' direction')
+        
+        #get current angle value
+        self.mesaure_angle()
+        
+        #time.sleep(0.1)
+        
+        stepsize = float(self.dockwidget.input_control_step.text())
+        
+        ha = self.measureValues["ha"]
+        za = self.measureValues["za"]
+        
+        if direction == 'h':
+            ha = ha + step* stepsize
+            
+            if ha > 400:
+                ha = ha - 400
+            
+            if ha < 0:
+                ha = ha + 400   
+            print(ha)
+            
+        if direction == 'v':
+            za = za + step* stepsize
+            
+            
+            if za > 400:
+                za = za - 400
+            
+            if za < 0:
+                za = za + 400
+                
+            print(za)
+            
+        
+        ha_string = f"{ha:.4f}".replace('.', '')
+        
+        if len(ha_string) < 7:
+            ha_string = '0' + ha_string
+        za_string = f"{za:.4f}".replace('.', '')
+        
+        if len(za_string) < 7:                  #führende Null hinzufügen bei Zahlen < 100
+            za_string = '0' + za_string
+        
+        
+        #generate new value and send command
+        command = f"*DHA{ha_string}VA{za_string}".encode('utf-8')
+        self.serial.write(command)
+        
+        
+           
     
     #--------------------------------------------------------------------------
 
@@ -715,9 +772,12 @@ class QGISSokkia:
             self.dockwidget.input_standpoint.setText(self.sp['ID'])
             
             
+            #connect control buttons
             
-            
-            
+            self.dockwidget.btn_control_left.clicked.connect(lambda: self.control('h', -1))
+            self.dockwidget.btn_control_right.clicked.connect(lambda: self.control('h',1))
+            self.dockwidget.btn_control_up.clicked.connect(lambda: self.control('v', -1))
+            self.dockwidget.btn_control_down.clicked.connect(lambda: self.control('v', 1))
             
 
             #connect 'toggle Laser from Map' btn
