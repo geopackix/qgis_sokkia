@@ -21,18 +21,37 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant, QDateTime
 from qgis.PyQt.QtGui import QIcon
+
+
+from datetime import datetime
+from qgis.gui import QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint
+from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField
 from qgis.PyQt.QtWidgets import QAction
 import serial
 import threading
 import time
+import math
+
 # Initialize Qt resources from file resources.py
 from .resources import *
 
 # Import the code for the DockWidget
 from .q_sokkia_plugin_dockwidget import QGISSokkiaDockWidget
 import os.path
+
+
+def remove_all_rubber_bands(canvas):
+    # Alle RubberBand-Objekte entfernen
+    items = canvas.scene().items()
+    for item in items:
+        if isinstance(item, QgsRubberBand):
+            canvas.scene().removeItem(item)
+
+    # Aktualisiere die Karte
+    canvas.refresh()
+
 
 
 class QGISSokkia:
@@ -70,6 +89,10 @@ class QGISSokkia:
         # TODO: We are going to let the user set this up in a future iteration
         self.toolbar = self.iface.addToolBar(u'QGISSokkia')
         self.toolbar.setObjectName(u'QGISSokkia')
+        
+        
+        #map canvas
+        self.canvas = iface.mapCanvas()
 
         #print "** INITIALIZING QGISSokkia"
 
@@ -84,6 +107,18 @@ class QGISSokkia:
         self.serialthread = None
         self.serialPeriodicEvent = threading.Event()
         self.periodicThread = None
+        self.laserState = False
+        self.target = 2
+        self.targetPrismConstant = 0
+        
+        #remove_all_rubber_bands(self.canvas)
+        #self.rubber_band = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+        
+        #Messlayer
+        
+        self.mlayer = None
+
+
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -220,22 +255,74 @@ class QGISSokkia:
     #--------------------------------------------------------------------------
 
     def connectToSerial(self):
+    
+        try:    
+            print("connect to serial");
+            
+            
+            port = self.dockwidget.input_port.text()
+            baudrate = self.dockwidget.input_baud.text()
+            self.serial = serial.Serial(port, baudrate, timeout=1)
+            
+            time.sleep(1)
+            
+            
+            
+            if self.serial.is_open:
+                print("Connection established successfully!")
+                self.serialthread = threading.Thread(target=self.readSerial)
+                self.serialthread.daemon = True  # makes the thread a daemon thread
+                self.serialthread.start() 
+                
+                self.periodicThread = threading.Thread(target=self.sendPeriodicAngleMeasureCommand)
+                self.periodicThread.daemon = True
+                self.periodicThread.start()
+                
+
+                # add temp layer with layername
+                self.addTempLayer(f"Messungen-{datetime.now().strftime('%d%m%y-%H%M')}")
+                
+                self.dockwidget.btn_connect.setEnabled(False)
+                self.dockwidget.btn_disconnect.setEnabled(True)
+                self.dockwidget.btn_laser.setEnabled(True)      #enable laser button
+                self.dockwidget.btn_measure.setEnabled(True)
+                self.dockwidget.btn_mesaure_a.setEnabled(True)
+                self.dockwidget.btn_measure_stop.setEnabled(True)
+                self.dockwidget.btn_setTraget.setEnabled(True)
+            
+            
+                # Layer zur Karte hinzufügen
+                QgsProject.instance().addMapLayer(self.mlayer)
+            else:
+                raise Exception('Serielle verbindung fehlgeschlagen')
         
-        print("connect to serial");
+        except serial.SerialException as e:
+            print(e)
+        except Exception as e:
+            print(e)
+    
+    
+    def addTempLayer(self, name):
         
+        self.mlayer = QgsVectorLayer("Point?crs=EPSG:25832", name, "memory")
         
-        port = self.dockwidget.input_port.text()
-        baudrate = self.dockwidget.input_baud.text()
-        self.serial = serial.Serial(port, baudrate, timeout=1)
+        attr_pkno = QgsField('Punktnummer', QVariant.String)
+        attr_sp = QgsField('Standpunkt', QVariant.String)
+        attr_datetime = QgsField('Recordtime', QVariant.DateTime)
+        attr_ih = QgsField('ih', QVariant.Double)
+        attr_th = QgsField('th', QVariant.Double)
         
-        self.serialthread = threading.Thread(target=self.readSerial)
-        self.serialthread.daemon = True  # makes the thread a daemon thread
-        self.serialthread.start() 
+        attr_messung_sd = QgsField('mess_sd', QVariant.Double)
+        attr_messung_za = QgsField('mess_za', QVariant.Double)
+        attr_messung_ha = QgsField('mess_ha', QVariant.Double)
+        calc_hd = QgsField('calc_hd', QVariant.Double)
+        calc_x = QgsField('calc_x', QVariant.Double)
+        calc_y = QgsField('calc_y', QVariant.Double)
+        calc_z = QgsField('calc_z', QVariant.Double)
         
-        self.periodicThread = threading.Thread(target=self.sendPeriodicAngleMeasureCommand)
-        self.periodicThread.daemon = True
-        self.periodicThread.start()
+        self.mlayer.dataProvider().addAttributes([attr_pkno,attr_sp,attr_datetime,attr_ih,attr_th,attr_messung_sd,attr_messung_za,attr_messung_ha, calc_hd, calc_x, calc_y, calc_z])
         
+        self.mlayer.updateFields()   
         
     def sendPeriodicAngleMeasureCommand(self):
         while not self.serialPeriodicEvent.is_set() and self.serial.is_open:
@@ -249,7 +336,17 @@ class QGISSokkia:
         print("disconnect from serial");
         self.serialStopEvent.set()
         self.serial.close()
-            
+        
+        #Enable/disable buttons
+        self.dockwidget.btn_connect.setEnabled(True)
+        self.dockwidget.btn_disconnect.setEnabled(False)
+        self.dockwidget.btn_laser.setEnabled(False)      #enable laser button
+        self.dockwidget.btn_measure.setEnabled(False)
+        self.dockwidget.btn_mesaure_a.setEnabled(False)
+        self.dockwidget.btn_measure_stop.setEnabled(False)
+        self.dockwidget.btn_setTraget.setEnabled(False)
+    
+        
             
     def readSerial(self):
         print("[thread] reading from serial")
@@ -258,18 +355,245 @@ class QGISSokkia:
                 data = self.serial.read(128)
                 
                 if data:
+                    
                     print(data)
+                    
+                    # Byte-String in einen regulären String dekodieren
+                    decoded_string = data.decode('utf-8')
+
+                    # String nach Leerzeichen aufteilen, um die Werte zu extrahieren
+                    values = decoded_string.split(' ')
+                    
+                    def convertNumbers(data):
+                        data = data.replace("\x15", "")
+                        return float(data[0:3] + '.' + data[3:])  
+                    
+                    sd = convertNumbers(values[0])
+                    za = convertNumbers(values[1])
+                    ha = convertNumbers(values[2])
+                    
+                    if(sd and za and ha):
+                        if sd > 0:   #streckenmessung
+                            print(f"SD: {sd} ZA: {za} HA: {ha}")
+                            self.addMPoint(sd,za,ha)
+                        else:
+                            print(f"SD: {sd} ZA: {za} HA: {ha}")
+                        
+                        
                 
+                    
                 
     
             except Exception as e:
                 print(e)
+                
+    
         
+    def addMPoint(self, sd,za,ha):
         
+        def increment_last_segment(s):
+            import re
+            # Suche nach dem letzten Vorkommen von '.', '-' oder '_'
+            match = re.search(r'[\.\-_]([^.\-_]+)$', s)
+            if not match:
+                return s  # Kein passendes Zeichen gefunden, gib den Originalstring zurück
+            teil = match.group(1)
+            if teil.isdigit():
+                # Inkrementiere die Zahl um 1
+                inkrementiert = str(int(teil) + 1)
+                # Ersetze den alten Teil durch den neuen im Originalstring
+                return s[:-len(teil)] + inkrementiert
+            else:
+                # Wenn kein Zahl, gib den String unverändert zurück
+                return s
+
+                
+        try:
+            hd = sd * math.sin(za*math.pi/200)
+            h_delta = sd * math.cos(za*math.pi/200)
+            
+            x = hd  * math.sin(ha*math.pi/200)
+            y = hd * math.cos(ha*math.pi/200)
+            
+            print(f"Neuer Punkt X:{x} Y:{y} hdelta:{h_delta}")
+            
+            point = QgsPointXY(x, y) 
+            
+            
+            feature = QgsFeature()
+            feature.setGeometry(QgsGeometry.fromPointXY(point))
+            feature.setAttributes([1]) # ID auf 1 setzen
+
+            #get properties from UI
+            ih = float(self.dockwidget.input_ih.text())
+            th = float(self.dockwidget.input_th.text())
+            prism_constant = float(self.dockwidget.input_prismConstant.text())
+            standpunkt = self.dockwidget.input_standpoint.text()
+            targetid = self.dockwidget.input_targetid.text()
+            
+            feature.setAttributes([targetid,'SP',QDateTime.currentDateTime(),ih,th,sd,za,ha,hd, x, y, h_delta])
+
+
+            #increment target id
+            newid = increment_last_segment(targetid)
+            self.dockwidget.input_targetid.setText(newid)
+
+
+
+            self.mlayer.dataProvider().addFeature(feature)
+            print('Punkt gespeichert')
+            
+            self.mlayer.updateExtents()
+            self.mlayer.triggerRepaint() #re-draw layer
+        except Exception as e:
+            print(e)
+
+
         
 
     
+    def draw_line(self, theta):
+        # Erstelle eine RubberBand-Instanz
+        
+        self.rubber_band.reset(QgsWkbTypes.LineGeometry)
+        #self.rubber_band = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+        
+        
+        
+        # Definiere die Punkte der Linie
+        start_point = QgsPointXY(0, 0)
+        
+        dist = 100
+        
+        theta = theta * math.pi / 200       #gon --> rad
+        
+        
+        x = dist * math.cos(theta)
+        y = dist * math.sin(theta)
+
+    
+        end_point = QgsPointXY(x, y)
+
+        # Füge die Punkte zur RubberBand hinzu
+        self.rubber_band.addPoint(start_point, True)
+        self.rubber_band.addPoint(end_point, True)
+
+        # Setze die Farbe und Breite der Linie
+        self.rubber_band.setColor(Qt.red)
+        self.rubber_band.setWidth(1)
+        
+        
+        # Aktualisiere die Karte
+        self.canvas.refresh()
+        #self.canvas.update()
+
+    
+    def selectCoordinatesFromMap(self):
+        print('Select coordinates from map')
+        
+        
+        def capture_coordinate(point, button):
+            x = point.x()
+            y = point.y()
+            print(f"Captured coordinate: ({x}, {y})")
+
+        
+        self.action = QAction("Capture Coordinate", self.iface.mainWindow())
+        tool = QgsMapToolEmitPoint(self.canvas)
+        tool.canvasClicked.connect(capture_coordinate)
+              
+        self.canvas.setMapTool(tool)
+        print('map tool set')
+   
+    def switchLaser(self):
+        
+        laser_command = b'*/PF 2,1\r\n'
+        self.serial.write(laser_command)
+        
+        # get laser state
+        state = self.laserState
+        
+        #toggle lader
+        if state:
+            laser_command = b'*GLOFF\r\n'
+            self.laserState= False
+            #button text
+            self.dockwidget.btn_laser.setText('Laser einschalten')
+            print('Laser off')
+        else:
+            laser_command = b'*GLON\r\n'
+            self.laserState = True
+            self.dockwidget.btn_laser.setText('Laser ausschalten')
+            print('Laser on')
+        
+        self.serial.write(laser_command)
+        
+       
+    
+    def selectTarget(self):
+        
+        vprism = self.dockwidget.radio_prism
+        vreflex = self.dockwidget.radio_reflex
+        vreflectorless = self.dockwidget.radio_reflectorless
+        
+        if vprism.isChecked():
+            self.target = 0
+            self.targetPrismConstant = -35   #sokkia default
+            self.dockwidget.input_prismConstant.setText(str(self.targetPrismConstant))
+        elif vreflex.isChecked():
+            self.target =1 
+            self.targetPrismConstant = 0
+            self.dockwidget.input_prismConstant.setText(str(self.targetPrismConstant))
+        elif vreflectorless.isChecked():
+            self.target = 2
+            self.targetPrismConstant = 0
+            self.dockwidget.input_prismConstant.setText(str(self.targetPrismConstant))
+        else:
+            self.target = 2    
+         
+    
+    def setTarget(self):
+        
+        command = None
+        if self.target == 0:
+            command = b'/C 0\r\n'   #prism
+            
+        elif self.target == 1:
+            command = b'/C 1\r\n'   #sheet
+            
+        else:
+            command = b'/C 2\r\n'   #reflectorless
+            
+            
+        self.targetPrismConstant = int(self.dockwidget.input_prismConstant.text())
+            
+        pc1 = b'/B 0,0,0,'
+        pc2 = b',1,0,0,0,0,0,0,0\r\n'
+        command2 = pc1 + str(self.targetPrismConstant).encode('utf-8') + pc2
+        
+        print(command2)
+        
+        self.serial.write(command)  
+        self.serial.write(command2) 
+        
+    def mesaure(self):
+        print('Streckenmessung')
+        command = bytes([0x11])
+        self.serial.write(command)
+    
+    def mesaure_angle(self):
+        print('Winkelmessung')
+        command = bytes([0x13])
+        self.serial.write(command)   
+    
+    def mesaure_stop(self):
+        print('Messung stoppen')
+        command = bytes([0x12])
+        self.serial.write(command) 
+    
     #--------------------------------------------------------------------------
+
+    
 
 
 
@@ -298,10 +622,26 @@ class QGISSokkia:
             #connect 'disconnect' btn
             self.dockwidget.btn_disconnect.clicked.connect(self.disconnectFromSerial)
 
+            #connect 'select coorinates from Map' btn
+            self.dockwidget.btn_select_sp.clicked.connect(self.selectCoordinatesFromMap)
+            
 
+            #connect 'toggle Laser from Map' btn
+            self.dockwidget.btn_laser.clicked.connect(self.switchLaser)
 
-
-
+            #radio buttons for target selection
+            self.dockwidget.radio_prism.clicked.connect(self.selectTarget)
+            self.dockwidget.radio_reflex.clicked.connect(self.selectTarget)
+            self.dockwidget.radio_reflectorless.clicked.connect(self.selectTarget)
+            self.dockwidget.btn_setTarget.clicked.connect(self.setTarget)
+            
+            #set prismconstant to default value
+            self.dockwidget.input_prismConstant.setText(str(self.targetPrismConstant))
+            
+            #Mess buttons
+            self.dockwidget.btn_measure.clicked.connect(self.mesaure)
+            self.dockwidget.btn_measure_a.clicked.connect(self.mesaure_angle)
+            self.dockwidget.btn_measure_stop.clicked.connect(self.mesaure_stop)
 
             # show the dockwidget
             # TODO: fix to allow choice of dock location
