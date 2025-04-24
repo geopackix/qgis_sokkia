@@ -287,6 +287,9 @@
           </item>
           <item>
            <widget class="QPushButton" name="btn_setSp">
+            <property name="enabled">
+             <bool>false</bool>
+            </property>
             <property name="text">
              <string>Setze Standpunkt</string>
             </property>
@@ -500,24 +503,6 @@
        <string>Geräte Verbindung</string>
       </property>
       <layout class="QGridLayout" name="gridLayout_2">
-       <item row="1" column="0">
-        <layout class="QHBoxLayout" name="horizontalLayout_3">
-         <item>
-          <widget class="QLabel" name="label_2">
-           <property name="text">
-            <string>Baudrate</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLineEdit" name="input_baud">
-           <property name="text">
-            <string>9600</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </item>
        <item row="2" column="0">
         <spacer name="verticalSpacer">
          <property name="orientation">
@@ -530,27 +515,6 @@
           </size>
          </property>
         </spacer>
-       </item>
-       <item row="3" column="0">
-        <layout class="QHBoxLayout" name="horizontalLayout">
-         <item>
-          <widget class="QPushButton" name="btn_connect">
-           <property name="text">
-            <string>Verbinden</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_disconnect">
-           <property name="enabled">
-            <bool>false</bool>
-           </property>
-           <property name="text">
-            <string>Trennen</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
        </item>
        <item row="0" column="0">
         <layout class="QHBoxLayout" name="horizontalLayout_2">
@@ -573,12 +537,61 @@
          </item>
         </layout>
        </item>
+       <item row="1" column="0">
+        <layout class="QHBoxLayout" name="horizontalLayout_3">
+         <item>
+          <widget class="QLabel" name="label_2">
+           <property name="text">
+            <string>Baudrate</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="input_baud">
+           <property name="text">
+            <string>9600</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="4" column="0">
+        <layout class="QHBoxLayout" name="horizontalLayout">
+         <item>
+          <widget class="QPushButton" name="btn_connect">
+           <property name="text">
+            <string>Verbinden</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_disconnect">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="text">
+            <string>Trennen</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item row="3" column="0">
+        <widget class="QgsProjectionSelectionWidget" name="mQgsProjectionSelectionWidget"/>
+       </item>
       </layout>
      </widget>
     </item>
    </layout>
   </widget>
  </widget>
+ <customwidgets>
+  <customwidget>
+   <class>QgsProjectionSelectionWidget</class>
+   <extends>QWidget</extends>
+   <header>qgsprojectionselectionwidget.h</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
  <buttongroups>
