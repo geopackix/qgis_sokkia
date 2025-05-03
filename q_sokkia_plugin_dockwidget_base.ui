@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1353</width>
+    <width>1565</width>
     <height>470</height>
    </rect>
   </property>
@@ -17,6 +17,18 @@
    <layout class="QGridLayout" name="gridLayout">
     <item row="0" column="6">
      <widget class="QGroupBox" name="groupBox_3">
+      <property name="minimumSize">
+       <size>
+        <width>100</width>
+        <height>0</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>250</width>
+        <height>16777215</height>
+       </size>
+      </property>
       <property name="title">
        <string>Ziel</string>
       </property>
@@ -252,6 +264,18 @@
     </item>
     <item row="0" column="4">
      <widget class="QGroupBox" name="groupBox_2">
+      <property name="minimumSize">
+       <size>
+        <width>100</width>
+        <height>0</height>
+       </size>
+      </property>
+      <property name="maximumSize">
+       <size>
+        <width>350</width>
+        <height>16777215</height>
+       </size>
+      </property>
       <property name="title">
        <string>Standpunkt</string>
       </property>
@@ -502,13 +526,13 @@
      <widget class="QGroupBox" name="groupBox_6">
       <property name="minimumSize">
        <size>
-        <width>350</width>
+        <width>100</width>
         <height>0</height>
        </size>
       </property>
       <property name="maximumSize">
        <size>
-        <width>222</width>
+        <width>350</width>
         <height>16777215</height>
        </size>
       </property>
@@ -680,6 +704,19 @@
        </item>
       </layout>
      </widget>
+    </item>
+    <item row="0" column="5">
+     <spacer name="horizontalSpacer">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <property name="sizeHint" stdset="0">
+       <size>
+        <width>40</width>
+        <height>20</height>
+       </size>
+      </property>
+     </spacer>
     </item>
    </layout>
   </widget>

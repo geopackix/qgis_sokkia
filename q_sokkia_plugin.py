@@ -32,6 +32,8 @@ import threading
 import time
 import math
 
+from .q_sokkia_orientation_arrow import OrientationArrow
+
 # Initialize Qt resources from file resources.py
 from .resources import *
 
@@ -114,6 +116,7 @@ class QGISSokkia:
         self.measureValues = {"ha": 0, "za": 0, "sd": 0}        #Messungen
         self.crsName = "EPSG:25832"
         self.orientation = 0
+        self.orientationArrow = OrientationArrow(self.crsName)
         
         
         #remove_all_rubber_bands(self.canvas)
@@ -583,6 +586,8 @@ class QGISSokkia:
         
 
         self.addAp()
+        self.orientationArrow.addFeature(sp_x,sp_y,ap_x,ap_y)
+        self.orientationArrow.addLayerToMapInstance()
         
     
             
