@@ -110,9 +110,10 @@ class QGISSokkia:
         self.targetPrismConstant = 0
         self.targetHeight = 0
         self.sp = {"ID": "SP1", "RECHTS": 0, "HOCH":0, "H": 0, "ih": 0}             #standpunkt
+        self.ap = {"ID": "", "RECHTS": 0, "HOCH":0}             #standpunkt
         self.measureValues = {"ha": 0, "za": 0, "sd": 0}        #Messungen
         self.crsName = "EPSG:25832"
-        
+        self.orientation = 0
         
         
         #remove_all_rubber_bands(self.canvas)
@@ -121,7 +122,7 @@ class QGISSokkia:
         #Layer
         self.mlayer = None
         self.splayer = None
-        
+        self.aplayer = None
 
 
 
@@ -291,6 +292,7 @@ class QGISSokkia:
                 # add temp layer with layername
                 self.addTempLayer(f"Messungen-{datetime.now().strftime('%d%m%y-%H%M')}")
                 self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
+                self.addApTempLayer(f"APs-{datetime.now().strftime('%d%m%y-%H%M')}")
                 
                 self.dockwidget.btn_connect.setEnabled(False)
                 self.dockwidget.btn_disconnect.setEnabled(True)
@@ -305,6 +307,7 @@ class QGISSokkia:
                 # Layer zur Karte hinzufügen
                 QgsProject.instance().addMapLayer(self.mlayer)
                 QgsProject.instance().addMapLayer(self.splayer)
+                QgsProject.instance().addMapLayer(self.aplayer)
             else:
                 raise Exception('Serielle verbindung fehlgeschlagen')
         
@@ -346,6 +349,7 @@ class QGISSokkia:
         self.splayer = QgsVectorLayer("Point?crs="+self.crsName, name, "memory")
         
         attr_pkno = QgsField('Punktnummer', QVariant.String)
+        attr_apno = QgsField('Anschluss', QVariant.String)
         attr_datetime = QgsField('Recordtime', QVariant.DateTime)
         attr_ih = QgsField('ih', QVariant.Double)
         x = QgsField('x', QVariant.Double)
@@ -354,8 +358,22 @@ class QGISSokkia:
         
         qml_file = f'{self.plugin_dir}/sp.qml'
         self.splayer.loadNamedStyle(qml_file)
-        self.splayer.dataProvider().addAttributes([attr_pkno,attr_datetime,attr_ih,x,y,z])
+        self.splayer.dataProvider().addAttributes([attr_pkno,attr_datetime,attr_ih,x,y,z,attr_apno])
         self.splayer.updateFields()  
+        
+    def addApTempLayer(self, name):
+        
+        self.aplayer = QgsVectorLayer("Point?crs="+self.crsName, name, "memory")
+        
+        attr_pkno = QgsField('Punktnummer', QVariant.String)
+        attr_datetime = QgsField('Recordtime', QVariant.DateTime)
+        x = QgsField('x', QVariant.Double)
+        y = QgsField('y', QVariant.Double)
+        
+        qml_file = f'{self.plugin_dir}/ap.qml'
+        self.aplayer.loadNamedStyle(qml_file)
+        self.aplayer.dataProvider().addAttributes([attr_pkno,attr_datetime,x,y])
+        self.aplayer.updateFields()  
         
     def sendPeriodicAngleMeasureCommand(self):
         while not self.serialPeriodicEvent.is_set() and self.serial.is_open:
@@ -454,6 +472,10 @@ class QGISSokkia:
         try:
             hd = sd * math.sin(za*math.pi/200)
             
+            #orientierung
+            print(f"{ha *200 / math.pi}")
+            ha = ha + self.orientation*200 / math.pi
+            print(f"{ha *200 / math.pi}")
             
             th = float(self.dockwidget.input_th.text())
             
@@ -507,7 +529,7 @@ class QGISSokkia:
         feature.setGeometry(QgsGeometry.fromPointXY(point))
         
 
-        feature.setAttributes([self.sp['ID'],QDateTime.currentDateTime(),self.sp['ih'],self.sp["RECHTS"], self.sp["HOCH"],self.sp["H"]])
+        feature.setAttributes([self.sp['ID'],QDateTime.currentDateTime(),self.sp['ih'],self.sp["RECHTS"], self.sp["HOCH"],self.sp["H"],self.ap['ID']])
 
 
         self.splayer.dataProvider().addFeature(feature)
@@ -515,7 +537,53 @@ class QGISSokkia:
         
         self.splayer.updateExtents()
         self.splayer.triggerRepaint() #re-draw layer
+        
+    def addAp(self):
+        
+        #self.ap = {"ID": "SP1", "RECHTS": 0, "HOCH":0, "H": 0, "ih": 0}
+        
+        point = QgsPointXY(self.ap["RECHTS"], self.ap["HOCH"]) 
+            
+        feature = QgsFeature()
+        feature.setGeometry(QgsGeometry.fromPointXY(point))
+        
+
+        feature.setAttributes([self.ap['ID'],QDateTime.currentDateTime(),self.ap["RECHTS"], self.ap["HOCH"]])
+
+
+        self.aplayer.dataProvider().addFeature(feature)
+        print('Station gespeichert')
+        
+        self.aplayer.updateExtents()
+        self.aplayer.triggerRepaint() #re-draw layer
     
+    def calc_orientation(self):
+        
+        #Get values from inpout fields
+        
+        #Anschluss (ap)
+        ap_x = float(self.dockwidget.input_ap_x.text())
+        ap_y = float(self.dockwidget.input_ap_y.text())
+        ap_name = self.dockwidget.input_ap.text()
+        
+        #Standpunkt
+        sp_x = float(self.dockwidget.input_sp_x.text())
+        sp_y = float(self.dockwidget.input_sp_y.text())
+        sp_name = self.dockwidget.input_standpoint.text()
+        
+        print(f"Berechne Orientierung von Standpunkt {sp_name} nach {ap_name}")
+        
+        o = math.atan2((ap_x -sp_x), (ap_y - sp_y))
+        self.orientation = o;   #setze Orientierung
+        
+        print(f"Orientierung: {o*200/math.pi} gon")
+        self.dockwidget.input_orientation.setText(str(self.orientation*200/math.pi) +'gon')
+        
+        self.ap = {"ID": ap_name, "RECHTS": ap_x, "HOCH":ap_y}             #standpunkt
+        
+
+        self.addAp()
+        
     
             
     def draw_line(self, theta):
@@ -677,11 +745,14 @@ class QGISSokkia:
         z = float(self.dockwidget.input_sp_z.text())
         ih = float(self.dockwidget.input_ih.text())
         
-
         self.sp = {"ID": id, "RECHTS": x, "HOCH":y, "H": z, "ih": ih} 
         
+        #Orientierung Berechnen
+        self.calc_orientation()
+        self.dockwidget.input_orientation.setText(str(self.orientation))
+        
         self.addStation()
-
+        
         self.dockwidget.lbl_sp.setText(f"ID: {self.sp['ID']}, RECHTS: {self.sp['RECHTS']}, HOCH: {self.sp['HOCH']}, H: {self.sp['H']}, ih: {self.sp['ih']}")
     
     def control(self, direction, step):
@@ -802,6 +873,9 @@ class QGISSokkia:
             self.dockwidget.btn_measure.clicked.connect(self.mesaure)
             self.dockwidget.btn_measure_a.clicked.connect(self.mesaure_angle)
             self.dockwidget.btn_measure_stop.clicked.connect(self.mesaure_stop)
+            
+            
+            
 
             # show the dockwidget
             # TODO: fix to allow choice of dock location
