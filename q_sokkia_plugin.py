@@ -19,7 +19,7 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant, QDateTime
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant, QDateTime, QTimer
 from qgis.PyQt.QtGui import QIcon
 import os
 
@@ -31,8 +31,10 @@ import serial
 import threading
 import time
 import math
+import queue
 
 from .q_sokkia_orientation_arrow import OrientationArrow
+from .resection.resection_dialog import ResectionDialog
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -126,6 +128,7 @@ class QGISSokkia:
         self.mlayer = None
         self.splayer = None
         self.aplayer = None
+        self._measure_queue = queue.Queue()
 
 
 
@@ -269,8 +272,17 @@ class QGISSokkia:
             print("connect to serial");
             
             
-            port = self.dockwidget.input_port.text()
-            baudrate = self.dockwidget.input_baud.text()
+            port = self.dockwidget.input_port.text().strip()
+            if not port:
+                self.iface.messageBar().pushWarning("Verbindung", "Kein Port angegeben.")
+                return
+            try:
+                baudrate = int(self.dockwidget.input_baud.text().strip())
+            except ValueError:
+                self.iface.messageBar().pushWarning("Verbindung", "Ungültige Baudrate (ganzzahlig erforderlich).")
+                return
+            # Sicherstellen, dass vorherige Thread-Stopp-Flag zurückgesetzt ist
+            self.serialStopEvent.clear()
             self.serial = serial.Serial(port, baudrate, timeout=1)
             
             
@@ -311,13 +323,15 @@ class QGISSokkia:
                 QgsProject.instance().addMapLayer(self.mlayer)
                 QgsProject.instance().addMapLayer(self.splayer)
                 QgsProject.instance().addMapLayer(self.aplayer)
+                self.iface.messageBar().pushSuccess(
+                    "Verbindung", f"Verbunden mit {port} ({baudrate} Baud)  |  CRS: {self.crsName}")
             else:
-                raise Exception('Serielle verbindung fehlgeschlagen')
-        
+                raise serial.SerialException('Port konnte nicht geöffnet werden.')
+
         except serial.SerialException as e:
-            print(e)
+            self.iface.messageBar().pushCritical("Verbindungsfehler", str(e))
         except Exception as e:
-            print(e)
+            self.iface.messageBar().pushCritical("Fehler", str(e))
     
     
     def addTempLayer(self, name):
@@ -385,10 +399,9 @@ class QGISSokkia:
             time.sleep(1)
 
     def disconnectFromSerial(self):
-        print("disconnect from serial");
         self.serialStopEvent.set()
-        self.serial.close()
-        
+        if self.serial and self.serial.is_open:
+            self.serial.close()
         #Enable/disable buttons
         self.dockwidget.btn_connect.setEnabled(True)
         self.dockwidget.btn_disconnect.setEnabled(False)
@@ -398,63 +411,59 @@ class QGISSokkia:
         self.dockwidget.btn_measure_stop.setEnabled(False)
         self.dockwidget.btn_setTarget.setEnabled(False)
         self.dockwidget.btn_setSp.setEnabled(False)
-    
-        
-            
+        self.iface.messageBar().pushInfo("Verbindung", "Getrennt.")
+
     def readSerial(self):
-        print("[thread] reading from serial")
-        
-        def parse_and_format_string(input_string):
-            # Decode the input string
-            decoded_string = input_string.decode('utf-8').strip()
-            decoded_string = decoded_string.replace("\x15", "")
+        """Liest serielle Daten im Hintergrund-Thread und legt sie thread-sicher in die Queue."""
+        def parse_and_format_string(raw):
+            decoded = raw.decode('utf-8', errors='replace').strip().replace("\x15", "")
+            numbers = decoded.split()
+            return [n[:3] + '.' + n[3:] for n in numbers]
 
-            # Split the string into individual numbers
-            numbers = decoded_string.split()
-
-            # Insert a decimal point at the third position of each number
-            formatted_numbers = [number[:3] + '.' + number[3:] for number in numbers]
-
-            return formatted_numbers
-        
         while not self.serialStopEvent.is_set() and self.serial.is_open:
             try:
-                data = self.serial.readline()       #self.serial.read(128)
-                
+                data = self.serial.readline()
                 if data:
-                    print(data)
-                    
-                    if not data.decode('utf-8').startswith('\x06'):
-                        parsedData = parse_and_format_string(data)
-                        print(parsedData)
-                        
-                        sd = float(parsedData[0])
-                        za = float(parsedData[1])
-                        ha = float(parsedData[2])
-                        
-                        
-                        if sd > 0:   #streckenmessung
-                            print(f"SD: {sd} ZA: {za} HA: {ha}")
-                            self.measureValues['ha'] = ha
-                            self.measureValues['za'] = za
-                            self.measureValues['sd'] = sd
-                            self.addMPoint(sd,za,ha)
-                        else:
-                            print(f"SD: {sd} ZA: {za} HA: {ha}")   
-                            self.measureValues['ha'] = ha
-                            self.measureValues['za'] = za
-                                
-                        self.dockwidget.lbl_ha.setText('HZ:' + str(f"{self.measureValues['ha']:.4f}") + ' gon')
-                        self.dockwidget.lbl_za.setText('VZ:' + str(f"{self.measureValues['za']:.4f}") + ' gon')
-                        self.dockwidget.lbl_sd.setText('SD:' + str(f"{self.measureValues['sd']:.4f}") + ' m')
-                    else:
-                        print('OK')
-    
+                    text = data.decode('utf-8', errors='replace')
+                    if not text.startswith('\x06'):
+                        parsed = parse_and_format_string(data)
+                        if len(parsed) >= 3:
+                            sd = float(parsed[0])
+                            za = float(parsed[1])
+                            ha = float(parsed[2])
+                            # Alle UI-/Layer-Operationen über Queue im Haupt-Thread
+                            self._measure_queue.put({
+                                'sd': sd, 'za': za, 'ha': ha,
+                                'is_distance': sd > 0,
+                            })
             except Exception as e:
-                print(e)
+                self._measure_queue.put({'error': str(e)})
                     
+    def _process_measure_queue(self):
+        """Verarbeitet Messdaten aus der seriellen Queue (läuft im Haupt-Thread via QTimer)."""
+        try:
+            while not self._measure_queue.empty():
+                item = self._measure_queue.get_nowait()
+                if 'error' in item:
+                    print(f"[Seriell] {item['error']}")
+                    continue
+                sd = item['sd']
+                za = item['za']
+                ha = item['ha']
+                self.measureValues['ha'] = ha
+                self.measureValues['za'] = za
+                if item['is_distance']:
+                    self.measureValues['sd'] = sd
+                    self.addMPoint(sd, za, ha)
+                if self.dockwidget:
+                    self.dockwidget.lbl_ha.setText(f"HZ: {self.measureValues['ha']:.4f} gon")
+                    self.dockwidget.lbl_za.setText(f"VZ: {self.measureValues['za']:.4f} gon")
+                    self.dockwidget.lbl_sd.setText(f"SD: {self.measureValues['sd']:.4f} m")
+        except Exception as e:
+            print(f"[Queue] {e}")
+
     def addMPoint(self, sd,za,ha):
-        
+
         def increment_last_segment(s):
             import re
             # Suche nach dem letzten Vorkommen von '.', '-' oder '_'
@@ -471,7 +480,9 @@ class QGISSokkia:
                 # Wenn kein Zahl, gib den String unverändert zurück
                 return s
 
-                
+        if self.mlayer is None:
+            return
+
         try:
             hd = sd * math.sin(za*math.pi/200)
             
@@ -523,10 +534,9 @@ class QGISSokkia:
             print(e)
     
     def addStation(self):
-        
-        #self.sp = {"ID": "SP1", "RECHTS": 0, "HOCH":0, "H": 0, "ih": 0}
-        
-        point = QgsPointXY(self.sp["RECHTS"], self.sp["HOCH"]) 
+        if self.splayer is None:
+            return
+        point = QgsPointXY(self.sp["RECHTS"], self.sp["HOCH"])
             
         feature = QgsFeature()
         feature.setGeometry(QgsGeometry.fromPointXY(point))
@@ -542,10 +552,9 @@ class QGISSokkia:
         self.splayer.triggerRepaint() #re-draw layer
         
     def addAp(self):
-        
-        #self.ap = {"ID": "SP1", "RECHTS": 0, "HOCH":0, "H": 0, "ih": 0}
-        
-        point = QgsPointXY(self.ap["RECHTS"], self.ap["HOCH"]) 
+        if self.aplayer is None:
+            return
+        point = QgsPointXY(self.ap["RECHTS"], self.ap["HOCH"])
             
         feature = QgsFeature()
         feature.setGeometry(QgsGeometry.fromPointXY(point))
@@ -561,32 +570,29 @@ class QGISSokkia:
         self.aplayer.triggerRepaint() #re-draw layer
     
     def calc_orientation(self):
-        
-        #Get values from inpout fields
-        
-        #Anschluss (ap)
-        ap_x = float(self.dockwidget.input_ap_x.text())
-        ap_y = float(self.dockwidget.input_ap_y.text())
-        ap_name = self.dockwidget.input_ap.text()
-        
-        #Standpunkt
-        sp_x = float(self.dockwidget.input_sp_x.text())
-        sp_y = float(self.dockwidget.input_sp_y.text())
-        sp_name = self.dockwidget.input_standpoint.text()
-        
-        print(f"Berechne Orientierung von Standpunkt {sp_name} nach {ap_name}")
-        
-        o = math.atan2((ap_x -sp_x), (ap_y - sp_y))
-        self.orientation = o;   #setze Orientierung
-        
-        print(f"Orientierung: {o*200/math.pi} gon")
-        self.dockwidget.input_orientation.setText(str(self.orientation*200/math.pi) +'gon')
-        
-        self.ap = {"ID": ap_name, "RECHTS": ap_x, "HOCH":ap_y}             #standpunkt
-        
+        try:
+            ap_x = float(self.dockwidget.input_ap_x.text())
+            ap_y = float(self.dockwidget.input_ap_y.text())
+            ap_name = self.dockwidget.input_ap.text().strip()
+            sp_x = float(self.dockwidget.input_sp_x.text())
+            sp_y = float(self.dockwidget.input_sp_y.text())
+        except ValueError as e:
+            self.iface.messageBar().pushWarning("Orientierung", f"Ungültige Koordinate: {e}")
+            return
 
+        if abs(ap_x - sp_x) < 1e-9 and abs(ap_y - sp_y) < 1e-9:
+            self.iface.messageBar().pushWarning(
+                "Orientierung",
+                "Standpunkt und Anschlusspunkt sind identisch – Orientierung nicht berechenbar.")
+            return
+
+        o = math.atan2(ap_x - sp_x, ap_y - sp_y)
+        self.orientation = o
+        z0_gon = o * 200.0 / math.pi
+        self.dockwidget.input_orientation.setText(f"{z0_gon:.4f} gon")
+        self.ap = {"ID": ap_name, "RECHTS": ap_x, "HOCH": ap_y}
         self.addAp()
-        self.orientationArrow.addFeature(sp_x,sp_y,ap_x,ap_y)
+        self.orientationArrow.addFeature(sp_x, sp_y, ap_x, ap_y)
         self.orientationArrow.addLayerToMapInstance()
         
     
@@ -628,21 +634,20 @@ class QGISSokkia:
 
     
     def selectCoordinatesFromMap(self):
-        print('Select coordinates from map')
-        
-        
+        """Aktiviert ein Kartenwerkzeug zum Aufnehmen des Standpunkts per Mausklick."""
         def capture_coordinate(point, button):
-            x = point.x()
-            y = point.y()
-            print(f"Captured coordinate: ({x}, {y})")
+            self.dockwidget.input_sp_x.setText(f"{point.x():.4f}")
+            self.dockwidget.input_sp_y.setText(f"{point.y():.4f}")
+            self.dockwidget.lbl_x.setText(f"RECHTS: {point.x():.4f}")
+            self.dockwidget.lbl_y.setText(f"HOCH: {point.y():.4f}")
+            self.canvas.unsetMapTool(self._sp_map_tool)
+            self.iface.messageBar().pushInfo(
+                "Standpunkt", f"Koordinaten übernommen: X={point.x():.4f}  Y={point.y():.4f}")
 
-        
-        self.action = QAction("Capture Coordinate", self.iface.mainWindow())
-        tool = QgsMapToolEmitPoint(self.canvas)
-        tool.canvasClicked.connect(capture_coordinate)
-              
-        self.canvas.setMapTool(tool)
-        print('map tool set')
+        self._sp_map_tool = QgsMapToolEmitPoint(self.canvas)
+        self._sp_map_tool.canvasClicked.connect(capture_coordinate)
+        self.canvas.setMapTool(self._sp_map_tool)
+        self.iface.messageBar().pushInfo("Standpunkt", "Klicken Sie in die Karte, um Koordinaten zu übernehmen.")
    
     def switchLaser(self):
         
@@ -720,7 +725,7 @@ class QGISSokkia:
         self.serial.write(command)  
         self.serial.write(command2) 
         
-        self.dockwidget.lbl_target.setText(f"Zieltyp: {targetType}, th: {float(self.dockwidget.input_th.text())}, Pismentkonstante: {self.targetPrismConstant}")
+        self.dockwidget.lbl_target.setText(f"Zieltyp: {targetType}  |  th: {float(self.dockwidget.input_th.text()):.3f} m  |  Prismenkonstante: {self.targetPrismConstant}")
         
         
         
@@ -741,25 +746,71 @@ class QGISSokkia:
         self.serial.write(command) 
         
     def setSp(self):
-        print('Setze Standpunkt')
-        
-        #get values from ui
-        id = self.dockwidget.input_standpoint.text()
-        x = float(self.dockwidget.input_sp_x.text())
-        y = float(self.dockwidget.input_sp_y.text())
-        z = float(self.dockwidget.input_sp_z.text())
-        ih = float(self.dockwidget.input_ih.text())
-        
-        self.sp = {"ID": id, "RECHTS": x, "HOCH":y, "H": z, "ih": ih} 
-        
-        #Orientierung Berechnen
+        try:
+            sp_id = self.dockwidget.input_standpoint.text().strip() or "SP"
+            x = float(self.dockwidget.input_sp_x.text())
+            y = float(self.dockwidget.input_sp_y.text())
+            z = float(self.dockwidget.input_sp_z.text())
+            ih = float(self.dockwidget.input_ih.text())
+        except ValueError as e:
+            self.iface.messageBar().pushWarning("Standpunkt", f"Ungültige Eingabe: {e}")
+            return
+
+        self.sp = {"ID": sp_id, "RECHTS": x, "HOCH": y, "H": z, "ih": ih}
         self.calc_orientation()
-        self.dockwidget.input_orientation.setText(str(self.orientation))
-        
         self.addStation()
-        
-        self.dockwidget.lbl_sp.setText(f"ID: {self.sp['ID']}, RECHTS: {self.sp['RECHTS']}, HOCH: {self.sp['HOCH']}, H: {self.sp['H']}, ih: {self.sp['ih']}")
+        self.dockwidget.lbl_sp.setText(
+            f"ID: {sp_id}  |  X: {x:.4f}  Y: {y:.4f}  H: {z:.4f}  ih: {ih:.4f}")
     
+    def open_resection_dialog(self):
+        """Öffnet den Dialog für die Freie Stationierung."""
+        if self.mlayer is None or self.mlayer.featureCount() == 0:
+            self.iface.messageBar().pushWarning(
+                "Freie Stationierung",
+                "Noch keine Messungen vorhanden – bitte zuerst Messungen aufnehmen."
+            )
+        dlg = ResectionDialog(
+            self.iface,
+            self.mlayer,
+            parent=self.iface.mainWindow()
+        )
+        dlg.result_accepted.connect(self._apply_resection_result)
+        dlg.exec_()
+
+    def _apply_resection_result(self, x: float, y: float, z: float, z0_rad: float):
+        """
+        Übernimmt das Ergebnis des Rückwärtsschnitts in den Standpunkt
+        und die Orientierung des Plugins.
+        """
+        sp_id = self.dockwidget.input_standpoint.text() or "SP"
+        ih = float(self.dockwidget.input_ih.text() or 0)
+        self.sp = {"ID": sp_id, "RECHTS": x, "HOCH": y, "H": z, "ih": ih}
+
+        self.orientation = z0_rad
+        z0_gon = z0_rad * 200.0 / math.pi
+
+        # UI-Felder aktualisieren
+        self.dockwidget.input_sp_x.setText(f"{x:.4f}")
+        self.dockwidget.input_sp_y.setText(f"{y:.4f}")
+        self.dockwidget.input_sp_z.setText(f"{z:.4f}")
+        self.dockwidget.input_orientation.setText(f"{z0_gon:.4f}")
+        self.dockwidget.lbl_x.setText(f"RECHTS: {x:.4f}")
+        self.dockwidget.lbl_y.setText(f"HOCH: {y:.4f}")
+        self.dockwidget.lbl_z.setText(f"HÖHE: {z:.4f}")
+        self.dockwidget.lbl_sp.setText(
+            f"ID: {sp_id}  X: {x:.4f}  Y: {y:.4f}  Z: {z:.4f}  "
+            f"z\u2080: {z0_gon:.4f} gon  [Freie Stationierung]"
+        )
+
+        # Standpunkt in Layer speichern
+        self.addStation()
+
+        self.iface.messageBar().pushSuccess(
+            "Freie Stationierung",
+            f"Standpunkt gesetzt \u2192 X={x:.4f} m, Y={y:.4f} m, "
+            f"Z={z:.4f} m, z\u2080={z0_gon:.4f} gon"
+        )
+
     def control(self, direction, step):
         
         print("Control totalstation in " + direction + ' direction')
@@ -878,9 +929,18 @@ class QGISSokkia:
             self.dockwidget.btn_measure.clicked.connect(self.mesaure)
             self.dockwidget.btn_measure_a.clicked.connect(self.mesaure_angle)
             self.dockwidget.btn_measure_stop.clicked.connect(self.mesaure_stop)
+
+            #Freie Stationierung
+            self.dockwidget.btn_resection.clicked.connect(self.open_resection_dialog)
             
             
             
+
+            # QTimer für thread-sichere Queue-Verarbeitung (Messdaten aus seriellem Thread)
+            if not hasattr(self, '_queue_timer'):
+                self._queue_timer = QTimer()
+                self._queue_timer.timeout.connect(self._process_measure_queue)
+                self._queue_timer.start(100)  # alle 100 ms prüfen
 
             # show the dockwidget
             # TODO: fix to allow choice of dock location
