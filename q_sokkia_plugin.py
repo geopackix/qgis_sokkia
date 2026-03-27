@@ -398,6 +398,24 @@ class QGISSokkia:
             self.serial.write(command)
             time.sleep(1)
 
+    def initLayers(self):
+        """Legt alle nötigen Layer an, ohne eine serielle Verbindung zu benötigen."""
+        crs = self.dockwidget.mQgsProjectionSelectionWidget.crs()
+        self.crsName = crs.authid() if crs.isValid() else "EPSG:25832"
+
+        self.addTempLayer(f"Messungen-{datetime.now().strftime('%d%m%y-%H%M')}")
+        self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
+        self.addApTempLayer(f"APs-{datetime.now().strftime('%d%m%y-%H%M')}")
+
+        QgsProject.instance().addMapLayer(self.mlayer)
+        QgsProject.instance().addMapLayer(self.splayer)
+        QgsProject.instance().addMapLayer(self.aplayer)
+
+        self.dockwidget.btn_setSp.setEnabled(True)
+
+        self.iface.messageBar().pushSuccess(
+            "Initialisiert", f"Layer angelegt (offline)  |  CRS: {self.crsName}")
+
     def disconnectFromSerial(self):
         self.serialStopEvent.set()
         if self.serial and self.serial.is_open:
@@ -535,21 +553,19 @@ class QGISSokkia:
     
     def addStation(self):
         if self.splayer is None:
+            self.iface.messageBar().pushWarning("Standpunkt", "Kein Stations-Layer vorhanden – bitte zuerst verbinden.")
             return
         point = QgsPointXY(self.sp["RECHTS"], self.sp["HOCH"])
-            
-        feature = QgsFeature()
+
+        feature = QgsFeature(self.splayer.fields())
         feature.setGeometry(QgsGeometry.fromPointXY(point))
-        
-
-        feature.setAttributes([self.sp['ID'],QDateTime.currentDateTime(),self.sp['ih'],self.sp["RECHTS"], self.sp["HOCH"],self.sp["H"],self.ap['ID']])
-
+        feature.setAttributes([self.sp['ID'], QDateTime.currentDateTime(), self.sp['ih'], self.sp["RECHTS"], self.sp["HOCH"], self.sp["H"], self.ap['ID']])
 
         self.splayer.dataProvider().addFeature(feature)
         print('Station gespeichert')
-        
+
         self.splayer.updateExtents()
-        self.splayer.triggerRepaint() #re-draw layer
+        self.splayer.triggerRepaint()
         
     def addAp(self):
         if self.aplayer is None:
@@ -757,18 +773,19 @@ class QGISSokkia:
             return
 
         self.sp = {"ID": sp_id, "RECHTS": x, "HOCH": y, "H": z, "ih": ih}
-        self.calc_orientation()
+        if self.dockwidget.groupBox_8.isChecked():
+            try:
+                self.calc_orientation()
+            except Exception as e:
+                print(f"[Orientierung] {e}")
         self.addStation()
         self.dockwidget.lbl_sp.setText(
             f"ID: {sp_id}  |  X: {x:.4f}  Y: {y:.4f}  H: {z:.4f}  ih: {ih:.4f}")
+        self.iface.messageBar().pushSuccess(
+            "Standpunkt", f"Standpunkt '{sp_id}' gesetzt und in Layer gespeichert.")
     
     def open_resection_dialog(self):
         """Öffnet den Dialog für die Freie Stationierung."""
-        if self.mlayer is None or self.mlayer.featureCount() == 0:
-            self.iface.messageBar().pushWarning(
-                "Freie Stationierung",
-                "Noch keine Messungen vorhanden – bitte zuerst Messungen aufnehmen."
-            )
         dlg = ResectionDialog(
             self.iface,
             self.mlayer,
@@ -801,6 +818,12 @@ class QGISSokkia:
             f"ID: {sp_id}  X: {x:.4f}  Y: {y:.4f}  Z: {z:.4f}  "
             f"z\u2080: {z0_gon:.4f} gon  [Freie Stationierung]"
         )
+
+        # Orientierungspfeil setzen (100 m in z₀-Richtung)
+        end_x = x + 100.0 * math.sin(z0_rad)
+        end_y = y + 100.0 * math.cos(z0_rad)
+        self.orientationArrow.addFeature(x, y, end_x, end_y)
+        self.orientationArrow.addLayerToMapInstance()
 
         # Standpunkt in Layer speichern
         self.addStation()
@@ -895,6 +918,9 @@ class QGISSokkia:
             
             #connect 'disconnect' btn
             self.dockwidget.btn_disconnect.clicked.connect(self.disconnectFromSerial)
+
+            #connect 'initialize without device' btn
+            self.dockwidget.btn_init.clicked.connect(self.initLayers)
 
             #connect 'select coorinates from Map' btn
             self.dockwidget.btn_select_sp.clicked.connect(self.selectCoordinatesFromMap)

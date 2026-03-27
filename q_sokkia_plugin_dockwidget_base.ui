@@ -81,6 +81,13 @@
          </item>
         </layout>
        </item>
+       <item>
+        <widget class="QPushButton" name="btn_init">
+         <property name="text"><string>⚡ Initialisieren (ohne Gerät)</string></property>
+         <property name="toolTip"><string>Layer anlegen und Plugin ohne Verbindung zu einem Tachymeter verwenden</string></property>
+         <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fff8e1,stop:1 #ffecb3);border-color:#ffd54f;font-weight:bold;}</string></property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </item>
@@ -189,6 +196,8 @@
        <item>
         <widget class="QGroupBox" name="groupBox_8">
          <property name="title"><string>Anschlussrichtung (Hz manuell)</string></property>
+         <property name="checkable"><bool>true</bool></property>
+         <property name="checked"><bool>false</bool></property>
          <layout class="QGridLayout" name="grid_ap">
           <property name="horizontalSpacing"><number>5</number></property>
           <property name="verticalSpacing"><number>3</number></property>

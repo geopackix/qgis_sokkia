@@ -85,6 +85,7 @@ class ResectionDialog(QDialog):
         super().__init__(parent)
         self.iface = iface
         self.mlayer = mlayer
+        self._default_mlayer = mlayer
         self._result = None          # ResectionResult-Objekt nach Berechnung
         self._result_z0_rad = None   # berechnete Orientierung in Radiant
         self._observations = []      # aktuelle Beobachtungsliste
@@ -101,7 +102,24 @@ class ResectionDialog(QDialog):
     def _build_ui(self):
         main = QVBoxLayout(self)
         main.setSpacing(8)
-
+        # ── 0. Messlayer-Auswahl ───────────────────────────────────────────────────────────────────
+        grp_mlayer = QGroupBox("Messungen (Layer)")
+        grp_mlayer.setToolTip("Layer, aus dem die Messungen (Hz, ZA, SD) gelesen werden")
+        ml = QHBoxLayout(grp_mlayer)
+        ml.addWidget(QLabel("Messlayer:"))
+        self._measure_layer_combo = QgsMapLayerComboBox()
+        self._measure_layer_combo.setFilters(QgsMapLayerProxyModel.PointLayer)
+        if self._default_mlayer is not None:
+            self._measure_layer_combo.blockSignals(True)
+            self._measure_layer_combo.setLayer(self._default_mlayer)
+            self._measure_layer_combo.blockSignals(False)
+        self._measure_layer_combo.layerChanged.connect(self._on_measure_layer_changed)
+        ml.addWidget(self._measure_layer_combo, 2)
+        btn_reload_m = QPushButton("↺ Neu laden")
+        btn_reload_m.setToolTip("Messungen aus dem gewählten Layer neu einlesen")
+        btn_reload_m.clicked.connect(self._reload_measurements)
+        ml.addWidget(btn_reload_m)
+        main.addWidget(grp_mlayer)
         # ── 1. Layer-Auswahl für bekannte Punkte ──────────────────────────────
         grp_layer = QGroupBox("Anschlusspunkte – bekannte Punkte (Layer)")
         ll = QHBoxLayout(grp_layer)
@@ -297,12 +315,13 @@ class ResectionDialog(QDialog):
             fld_combo.setLayer(layer)
         self._refresh_ap_combos()
 
-    def _load_measurements(self):
-        """Lädt alle Messungen aus dem Messlayer."""
+    def _load_measurements(self, layer=None):
+        """Lädt alle Messungen aus dem angegebenen bzw. Standard-Messlayer."""
         self._measurements = []
-        if self.mlayer is None:
+        active_layer = layer if layer is not None else self.mlayer
+        if active_layer is None:
             return
-        for feat in self.mlayer.getFeatures():
+        for feat in active_layer.getFeatures():
             pnr = str(feat["Punktnummer"] or "")
             hz = feat["mess_ha"]
             za = feat["mess_za"]
@@ -444,15 +463,18 @@ class ResectionDialog(QDialog):
             combo_ap.setCurrentIndex(max(idx, 0))
             combo_ap.blockSignals(False)
             self._on_ap_changed(row)
-    def _reload_measurements(self):
-        """Lädt Messungen aus dem Messlayer neu und aktualisiert alle Messung-ComboBoxen."""
-        self._load_measurements()
+    def _on_measure_layer_changed(self, layer):
+        """Wird aufgerufen, wenn der Messlayer im Combo gewechselt wird."""
+        self._load_measurements(layer)
         n = len(self._measurements)
-        self.lbl_measure_info.setText(
-            f"Wählen Sie für jede Messung den zugehörigen bekannten Anschlusspunkt. "
-            f"Mindestens 2 Zuordnungen mit SD und ZA sind erforderlich (≥ 3 empfohlen). "
-            f"— {n} Messung(en) verfügbar."
-        )
+        if hasattr(self, 'lbl_measure_info'):
+            self.lbl_measure_info.setText(
+                f"Wählen Sie für jede Messung den zugehörigen bekannten Anschlusspunkt. "
+                f"Mindestens 2 Zuordnungen mit SD und ZA sind erforderlich (≥ 3 empfohlen). "
+                f"— {n} Messung(en) verfügbar."
+            )
+        if not hasattr(self, 'table'):
+            return
         for row in range(self.table.rowCount()):
             combo_m = self.table.cellWidget(row, 0)
             if combo_m is None:
@@ -472,6 +494,11 @@ class ResectionDialog(QDialog):
                         break
             combo_m.blockSignals(False)
             self._on_measurement_changed(row)
+
+    def _reload_measurements(self):
+        """Lädt Messungen aus dem Messlayer neu und aktualisiert alle Messung-ComboBoxen."""
+        self._on_measure_layer_changed(self._measure_layer_combo.currentLayer())
+        n = len(self._measurements)
         msg = f"{n} Messung(en) geladen." if n > 0 else "Keine Messungen im Layer gefunden."
         QMessageBox.information(self, "Messungen neu geladen", msg)
     # ── Datenerfassung ────────────────────────────────────────────────────────

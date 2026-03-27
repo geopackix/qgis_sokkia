@@ -51,6 +51,7 @@ class ResectionResult:
     num_points: int                # Anzahl der Anschlusspunkte
     dof: int                       # Freiheitsgrade
     redundancy: float              # Redundanzgrad
+    orientation: Optional[float] = None  # Orientierungsunbekannte (rad)
 
     def __str__(self) -> str:
         lines = [
@@ -65,6 +66,7 @@ class ResectionResult:
             f"Anzahl Punkte:                {self.num_points}",
             f"Freiheitsgrade:               {self.dof}",
             f"Redundanzgrad:                {self.redundancy:.4f}",
+            f"Orientierung (rad):           {f'{self.orientation:.6g}' if self.orientation is not None else 'n/a'}",
             "",
             "Kovarianzmatrix (m²):",
             str(self.covariance),
@@ -117,8 +119,9 @@ def resection(
                                  (z.B. von Tachymeter gemessen)
         measured_directions: (N_r,3) Array der gemessenen Unit-Vektoren (optional)
                             Richtungen sollten normalisiert sein
-        measured_hz_angles: (N_hz,) Array der gemessenen Horizontalwinkel (Azimute) in Radiant (optional)
-                           Azimut wird von X-Achse gegen Y-Achse gemessen: atan2(dy, dx)
+        measured_hz_angles: (N_hz,) Array der gemessenen Horizontalwinkel (Richtungen) in Radiant (optional)
+                           Geodätische Konvention: von Y-Achse (Nord) im Uhrzeigersinn: atan2(dx, dy)
+                           Es wird automatisch eine Orientierungsunbekannte mitgeschätzt.
         measured_v_angles: (N_v,) Array der gemessenen Vertikalwinkel (Höhenwinkel) in Radiant (optional)
                           Höhenwinkel: atan(dz / sqrt(dx² + dy²)), wobei 0 = horizontal, π/2 = oben
         max_iterations: Maximale Anzahl Newton-Gauss Iterationen (default: 20)
@@ -284,6 +287,15 @@ def resection(
 
     X = X0.copy()
 
+    # Orientierungsunbekannte für Horizontalwinkel
+    n_unknowns = 3
+    o = 0.0
+    if has_hz_angles:
+        n_unknowns = 4
+        # Näherungswert für Orientierung aus erster Hz-Messung
+        diff0 = P[0] - X
+        o = HZ_meas[0] - np.arctan2(diff0[0], diff0[1])
+
     # Gauss-Newton-Iteration
     for iteration in range(max_iterations):
         # Aufbau der Beobachtungsgleichungen und Designmatrix
@@ -300,7 +312,10 @@ def resection(
                 l.append(l_i)
 
                 # Jacobi: d(P_i - X)/dX = -I_3
-                A.append(-np.eye(3))
+                A_row = -np.eye(3)
+                if n_unknowns > 3:
+                    A_row = np.hstack([A_row, np.zeros((3, 1))])
+                A.append(A_row)
                 P_weights.append(W_vec[i])
 
         # Distanz-Beobachtungen
@@ -319,7 +334,10 @@ def resection(
                 # Jacobi: d(||P_i - X||)/dX = -(P_i - X)^T / ||P_i - X||
                 # Shape: (1, 3)
                 grad_dist = -diff / dist
-                A.append(grad_dist.reshape(1, 3))
+                A_row = grad_dist.reshape(1, 3)
+                if n_unknowns > 3:
+                    A_row = np.hstack([A_row, [[0.0]]])
+                A.append(A_row)
                 P_weights.append(np.array([W_dist[i]]))
 
         # Schrägstrecken-Beobachtungen
@@ -338,7 +356,10 @@ def resection(
                 # Jacobi: d(||P_i - X||)/dX = -(P_i - X)^T / ||P_i - X||
                 # Shape: (1, 3)
                 grad_dist = -diff / dist
-                A.append(grad_dist.reshape(1, 3))
+                A_row = grad_dist.reshape(1, 3)
+                if n_unknowns > 3:
+                    A_row = np.hstack([A_row, [[0.0]]])
+                A.append(A_row)
                 P_weights.append(np.array([W_slant[i]]))
 
         # Richtungs-Beobachtungen
@@ -360,18 +381,21 @@ def resection(
                 # = (I/||d|| - d*d^T/||d||^3) * (-I)
                 dist_sq = dist * dist
                 A_i = (np.eye(3) - np.outer(dir_calc, dir_calc)) / dist
-                A.append(-A_i)
+                A_row = -A_i
+                if n_unknowns > 3:
+                    A_row = np.hstack([A_row, np.zeros((3, 1))])
+                A.append(A_row)
                 P_weights.append(W_dir[i])
 
-        # Horizontalwinkel-Beobachtungen (Azimut)
+        # Horizontalwinkel-Beobachtungen (geodätisch: von Y-Achse im Uhrzeigersinn)
         if has_hz_angles:
             for i in range(n_hz):
                 diff = P[i] - X
                 dx = diff[0]
                 dy = diff[1]
                 
-                # Beobachtungsgleichung: hz = atan2(dy, dx)
-                hz_calc = np.arctan2(dy, dx)
+                # Beobachtungsgleichung: hz = atan2(dx, dy) - o
+                hz_calc = np.arctan2(dx, dy) - o
                 # Residuum: Winkeldifferenz (mit Periodizität beachten)
                 hz_res = HZ_meas[i] - hz_calc
                 # Normalize to [-π, π]
@@ -379,11 +403,11 @@ def resection(
                 l_i = np.array([hz_res])
                 l.append(l_i)
                 
-                # Jacobi: d(atan2(dy, dx))/dX = [-dy/(dx² + dy²), dx/(dx² + dy²), 0]
+                # Jacobi: d(atan2(dx, dy) - o)/d[X, Y, Z, o]
                 denom = dx*dx + dy*dy
                 if denom < 1e-10:
                     denom = 1e-10
-                A_i = np.array([[-dy/denom, dx/denom, 0.0]])
+                A_i = np.array([[-dy/denom, dx/denom, 0.0, -1.0]])
                 A.append(A_i)
                 P_weights.append(np.array([W_hz[i]]))
 
@@ -414,12 +438,14 @@ def resection(
                 if dist_sq < 1e-10:
                     dist_sq = 1e-10
                 
-                # dv/d(dh) = -dz / dist_sq
-                # dv/d(dz) = dh / dist_sq
-                A_i = np.array([
-                    [-dz*dx / (dh * dist_sq), -dz*dy / (dh * dist_sq), dh / dist_sq]
+                # dv/d(dh) = -dz / dist_sq, dv/d(dz) = dh / dist_sq
+                # Kettenregel mit d(diff)/dX = -I:
+                A_row = np.array([
+                    [dz*dx / (dh * dist_sq), dz*dy / (dh * dist_sq), -dh / dist_sq]
                 ])
-                A.append(A_i)
+                if n_unknowns > 3:
+                    A_row = np.hstack([A_row, [[0.0]]])
+                A.append(A_row)
                 P_weights.append(np.array([W_v[i]]))
 
         # Zusammenfassen
@@ -441,7 +467,9 @@ def resection(
         if np.max(np.abs(dX)) < tolerance:
             break
 
-        X = X + dX
+        X = X + dX[:3]
+        if n_unknowns > 3:
+            o = o + dX[3]
 
     # Abschließende Residuen berechnen
     residuals_list = []
@@ -480,7 +508,7 @@ def resection(
             diff = P[i] - X
             dx = diff[0]
             dy = diff[1]
-            hz_calc = np.arctan2(dy, dx)
+            hz_calc = np.arctan2(dx, dy) - o
             hz_res = HZ_meas[i] - hz_calc
             hz_res = np.arctan2(np.sin(hz_res), np.cos(hz_res))
             residuals_list.append(np.array([hz_res, 0, 0]))
@@ -500,7 +528,7 @@ def resection(
 
     # Fehlerstatistik
     # Für nichtlineare Probleme: Verwendung aller Komponenten
-    dof = n_meas - 3
+    dof = n_meas - n_unknowns
 
     if dof <= 0:
         raise ValueError("Zu wenige Freiheitsgrade für Fehlerschätzung.")
@@ -534,7 +562,7 @@ def resection(
             diff = P[i] - X
             dx = diff[0]
             dy = diff[1]
-            hz_calc = np.arctan2(dy, dx)
+            hz_calc = np.arctan2(dx, dy) - o
             hz_res = HZ_meas[i] - hz_calc
             hz_res = np.arctan2(np.sin(hz_res), np.cos(hz_res))
             l_final.append([hz_res])
@@ -557,10 +585,12 @@ def resection(
 
     # Kovarianzmatrix der Parameter: Qxx = sigma0^2 * (A^T W A)^{-1}
     try:
-        Qxx = sigma0_sq * np.linalg.inv(AtWA)
+        Qxx_full = sigma0_sq * np.linalg.inv(AtWA)
     except np.linalg.LinAlgError:
-        Qxx = np.eye(3) * sigma0_sq  # Fallback
+        Qxx_full = np.eye(n_unknowns) * sigma0_sq  # Fallback
 
+    # Positionskovarianz (3x3) extrahieren
+    Qxx = Qxx_full[:3, :3]
     std_dev = np.sqrt(np.abs(np.diag(Qxx)))
 
     # Weitere Metriken
@@ -582,6 +612,7 @@ def resection(
         num_points=num_points_used,
         dof=dof,
         redundancy=redundancy,
+        orientation=o if has_hz_angles else None,
     )
 
 
