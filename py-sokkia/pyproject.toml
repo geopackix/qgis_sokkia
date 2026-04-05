@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "sdr33"
+version = "1.0.0"
+description = "Toolbox for Sokkia SDR33 format - coordinate and survey data exchange"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "Geopackix", url = "https://github.com/geopackix"},
+]
+
+[project.urls]
+Repository = "https://github.com/geokoord/sdr33-toolbox"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
