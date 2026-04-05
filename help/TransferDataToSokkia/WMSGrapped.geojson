@@ -1,0 +1,12 @@
+{
+"type": "FeatureCollection",
+"name": "WMSGrapped",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::25832" } },
+"features": [
+{ "type": "Feature", "properties": { "name": "B1", "pixel_count": 108, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 523365.927000000025146, 5411580.67200000025332 ] } },
+{ "type": "Feature", "properties": { "name": "119002d", "pixel_count": 112, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 523469.38900000002468, 5411567.195000000298023 ] } },
+{ "type": "Feature", "properties": { "name": "B2", "pixel_count": 108, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 523418.086000000010245, 5411524.934000000357628 ] } },
+{ "type": "Feature", "properties": { "name": "117002c", "pixel_count": 108, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 523463.75199999997858, 5411480.923999999649823 ] } },
+{ "type": "Feature", "properties": { "name": "B3", "pixel_count": 105, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 523373.113000000012107, 5411461.739 ] } }
+]
+}

@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES6",
+    "outDir": "./build",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src", "src/**/*.json"],
+  "exclude": ["node_modules", "build"]
+}

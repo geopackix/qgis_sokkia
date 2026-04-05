@@ -88,6 +88,13 @@
          <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fff8e1,stop:1 #ffecb3);border-color:#ffd54f;font-weight:bold;}</string></property>
         </widget>
        </item>
+       <item>
+        <widget class="QPushButton" name="btn_transfer">
+         <property name="text"><string>📡 Koordinaten-Transfer …</string></property>
+         <property name="toolTip"><string>Koordinaten zwischen QGIS-Layer und Tachymeter übertragen (Upload/Download im SDR33-Format)</string></property>
+         <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8eaf6,stop:1 #c5cae9);border-color:#7986cb;font-weight:bold;}</string></property>
+        </widget>
+       </item>
       </layout>
      </widget>
     </item>

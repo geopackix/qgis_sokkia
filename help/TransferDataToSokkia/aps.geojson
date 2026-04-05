@@ -1,0 +1,13 @@
+{
+"type": "FeatureCollection",
+"name": "aps",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::25832" } },
+"features": [
+{ "type": "Feature", "properties": { "name": "100.0004", "pixel_count": 112, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 524252.63, 5412151.894000000320375 ] } },
+{ "type": "Feature", "properties": { "name": "100.0010", "pixel_count": 112, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 523847.5, 5412150.962000000290573 ] } },
+{ "type": "Feature", "properties": { "name": "100.0003", "pixel_count": 100, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 524008.006, 5412102.143000000156462 ] } },
+{ "type": "Feature", "properties": { "name": "100.0002", "pixel_count": 104, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 523951.572999999974854, 5412091.582999999634922 ] } },
+{ "type": "Feature", "properties": { "name": "100.0001", "pixel_count": 105, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 524076.849999999976717, 5412055.058000000193715 ] } },
+{ "type": "Feature", "properties": { "name": "100.0005", "pixel_count": 107, "pixel_resolution": "0.0280" }, "geometry": { "type": "Point", "coordinates": [ 524004.542000000015832, 5412009.733 ] } }
+]
+}

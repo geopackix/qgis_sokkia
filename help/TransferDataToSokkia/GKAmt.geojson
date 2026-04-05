@@ -1,0 +1,12 @@
+{
+"type": "FeatureCollection",
+"name": "GKAmt",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::31467" } },
+"features": [
+{ "type": "Feature", "properties": { "Nr. Rechtswert": 375, "Hochwert": 3523502.83, "Höhe": 5413250.81, "field_4": 279.808, "name": "B2" }, "geometry": { "type": "Point", "coordinates": [ 3523502.83, 5413250.809999999590218 ] } },
+{ "type": "Feature", "properties": { "Nr. Rechtswert": 247, "Hochwert": 3523450.65, "Höhe": 5413306.57, "field_4": 275.124, "name": "B1" }, "geometry": { "type": "Point", "coordinates": [ 3523450.65, 5413306.570000000298023 ] } },
+{ "type": "Feature", "properties": { "Nr. Rechtswert": 380, "Hochwert": 3523457.83, "Höhe": 5413187.59, "field_4": 278.019, "name": "B3" }, "geometry": { "type": "Point", "coordinates": [ 3523457.83, 5413187.589999999850988 ] } },
+{ "type": "Feature", "properties": { "Nr. Rechtswert": 378, "Hochwert": 3523548.51, "Höhe": 5413206.76, "field_4": 284.013 }, "geometry": { "type": "Point", "coordinates": [ 3523548.509999999776483, 5413206.759999999776483 ] } },
+{ "type": "Feature", "properties": { "Nr. Rechtswert": 381, "Hochwert": 3523512.71, "Höhe": 5413164.51, "field_4": 281.216 }, "geometry": { "type": "Point", "coordinates": [ 3523512.71, 5413164.509999999776483 ] } }
+]
+}

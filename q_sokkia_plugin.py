@@ -35,6 +35,7 @@ import queue
 
 from .q_sokkia_orientation_arrow import OrientationArrow
 from .resection.resection_dialog import ResectionDialog
+from .transfer_dialog import TransferDialog
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -129,6 +130,7 @@ class QGISSokkia:
         self.splayer = None
         self.aplayer = None
         self._measure_queue = queue.Queue()
+        self._transfer_mode = False
 
 
 
@@ -440,6 +442,11 @@ class QGISSokkia:
 
         while not self.serialStopEvent.is_set() and self.serial.is_open:
             try:
+                # Im Transfermodus überlässt der readSerial die Daten dem Transfer-Dialog
+                if self._transfer_mode:
+                    import time
+                    time.sleep(0.1)
+                    continue
                 data = self.serial.readline()
                 if data:
                     text = data.decode('utf-8', errors='replace')
@@ -794,6 +801,20 @@ class QGISSokkia:
         dlg.result_accepted.connect(self._apply_resection_result)
         dlg.exec_()
 
+    def open_transfer_dialog(self):
+        """Öffnet den Koordinaten-Transfer-Dialog (Upload/Download)."""
+        dlg = TransferDialog(
+            self.iface,
+            serial_connection=self.serial,
+            parent=self.iface.mainWindow(),
+            transfer_mode_setter=self._set_transfer_mode,
+        )
+        dlg.exec_()
+
+    def _set_transfer_mode(self, active):
+        """Aktiviert/deaktiviert den Transfermodus (pausiert readSerial)."""
+        self._transfer_mode = active
+
     def _apply_resection_result(self, x: float, y: float, z: float, z0_rad: float):
         """
         Übernimmt das Ergebnis des Rückwärtsschnitts in den Standpunkt
@@ -958,6 +979,9 @@ class QGISSokkia:
 
             #Freie Stationierung
             self.dockwidget.btn_resection.clicked.connect(self.open_resection_dialog)
+
+            #Koordinaten-Transfer
+            self.dockwidget.btn_transfer.clicked.connect(self.open_transfer_dialog)
             
             
             
