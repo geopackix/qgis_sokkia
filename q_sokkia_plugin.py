@@ -24,10 +24,11 @@ from qgis.PyQt.QtGui import QIcon
 import os
 
 from datetime import datetime
-from qgis.gui import QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint
-from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField
+from qgis.gui import QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint, QgsMapLayerComboBox
+from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsMapLayerProxyModel
 from qgis.PyQt.QtWidgets import QAction
 import serial
+import serial.tools.list_ports
 import threading
 import time
 import math
@@ -227,7 +228,7 @@ class QGISSokkia:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        icon_path = ':/plugins/q_sokkia_plugin/icon2.png'
+        icon_path = ':/plugins/q_sokkia_plugin/icon.png'
         self.add_action(
             icon_path,
             text=self.tr(u'QSDR'),
@@ -268,16 +269,33 @@ class QGISSokkia:
 
     #--------------------------------------------------------------------------
 
+    def _refresh_serial_ports(self):
+        """Füllt die Port-ComboBox mit den aktuell verfügbaren seriellen Ports."""
+        combo = self.dockwidget.combo_port
+        previous = combo.currentText()
+        combo.clear()
+        ports = sorted(serial.tools.list_ports.comports(), key=lambda p: p.device)
+        for p in ports:
+            combo.addItem(p.device, p.description)
+            combo.setItemData(combo.count() - 1, f"{p.device} – {p.description}", Qt.ToolTipRole)
+        # Gespeicherten Port wiederherstellen
+        saved = QSettings().value('qgis_sokkia/last_port', '')
+        restore = saved if saved else previous
+        idx = combo.findText(restore)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
     def connectToSerial(self):
     
         try:    
             print("connect to serial");
             
             
-            port = self.dockwidget.input_port.text().strip()
+            port = self.dockwidget.combo_port.currentText().strip()
             if not port:
                 self.iface.messageBar().pushWarning("Verbindung", "Kein Port angegeben.")
                 return
+            QSettings().setValue('qgis_sokkia/last_port', port)
             try:
                 baudrate = int(self.dockwidget.input_baud.text().strip())
             except ValueError:
@@ -544,6 +562,8 @@ class QGISSokkia:
             self.dockwidget.lbl_calc_y.setText('Y:' + str(f"{y:.4f}"))
             self.dockwidget.lbl_calc_z.setText('Z:' + str(f"{z:.4f}"))
 
+            self._calc_line_distance(x, y)
+
             #increment target id
             newid = increment_last_segment(targetid)
             self.dockwidget.input_targetid.setText(newid)
@@ -592,6 +612,28 @@ class QGISSokkia:
         self.aplayer.updateExtents()
         self.aplayer.triggerRepaint() #re-draw layer
     
+    def _calc_line_distance(self, x, y):
+        """Berechnet den Abstand vom Punkt (x, y) zur nächsten Linie des ausgewählten Layers."""
+        if not self.dockwidget or not self.dockwidget.groupBox_linedist.isChecked():
+            return
+        layer = self.dockwidget.combo_line_layer.currentLayer()
+        if layer is None:
+            self.dockwidget.lbl_line_distance.setText("Abstand: kein Layer")
+            return
+        point_geom = QgsGeometry.fromPointXY(QgsPointXY(x, y))
+        min_dist = None
+        for feat in layer.getFeatures():
+            geom = feat.geometry()
+            if geom.isNull() or geom.isEmpty():
+                continue
+            dist = point_geom.distance(geom)
+            if min_dist is None or dist < min_dist:
+                min_dist = dist
+        if min_dist is not None:
+            self.dockwidget.lbl_line_distance.setText(f"Abstand: {min_dist:.3f} m")
+        else:
+            self.dockwidget.lbl_line_distance.setText("Abstand: keine Geometrie")
+
     def calc_orientation(self):
         try:
             ap_x = float(self.dockwidget.input_ap_x.text())
@@ -933,6 +975,9 @@ class QGISSokkia:
             # connect to provide cleanup on closing of dockwidget
             self.dockwidget.closingPlugin.connect(self.onClosePlugin)
 
+            # Serielle Ports befüllen und gespeicherten Port wiederherstellen
+            self._refresh_serial_ports()
+            self.dockwidget.btn_refresh_ports.clicked.connect(self._refresh_serial_ports)
 
             #connect 'connect' btn
             self.dockwidget.btn_connect.clicked.connect(self.connectToSerial)
@@ -982,6 +1027,9 @@ class QGISSokkia:
 
             #Koordinaten-Transfer
             self.dockwidget.btn_transfer.clicked.connect(self.open_transfer_dialog)
+
+            # Linienabstand: nur Linienlayer anzeigen
+            self.dockwidget.combo_line_layer.setFilters(QgsMapLayerProxyModel.LineLayer)
             
             
             
