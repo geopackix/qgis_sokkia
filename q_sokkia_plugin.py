@@ -1133,6 +1133,8 @@ class QGISSokkia:
             return
 
         o = math.atan2(ap_x - sp_x, ap_y - sp_y)
+        if o < 0:
+            o += 2 * math.pi
         self.orientation = o
         z0_gon = o * 200.0 / math.pi
         self._standort_dlg.input_orientation.setText(f"{z0_gon:.4f} gon")
