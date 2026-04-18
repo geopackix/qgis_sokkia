@@ -79,7 +79,7 @@ class ResectionDialog(QDialog):
             Ergebnis übernimmt ('Standpunkt & Orientierung übernehmen').
     """
 
-    result_accepted = pyqtSignal(float, float, float, float)  # x, y, z, z0_rad
+    result_accepted = pyqtSignal(float, float, float, float, object)  # x, y, z, z0_rad, details_dict
 
     def __init__(self, iface, mlayer, parent=None):
         super().__init__(parent)
@@ -701,7 +701,52 @@ class ResectionDialog(QDialog):
         if self._result is None:
             return
         X_P, Y_P, Z_P = self._result.position
+        z0_gon = _rad_to_gon(self._result_z0_rad)
+
+        # Per-Punkt-Details für das Protokoll berechnen
+        points = []
+        for o in self._observations:
+            diff = np.array([o["X"], o["Y"], o["Z"]]) - self._result.position
+            sd_calc = float(np.linalg.norm(diff))
+            dh = math.sqrt(diff[0] ** 2 + diff[1] ** 2)
+            if dh < 1e-10:
+                dh = 1e-10
+            za_calc_gon = 100.0 - _rad_to_gon(math.atan2(diff[2], dh))
+            sd_res = o["sd_m"] - sd_calc
+            za_res = o["za_gon"] - za_calc_gon
+            t_rad = math.atan2(diff[0], diff[1])
+            t_gon = _normalize_gon(_rad_to_gon(t_rad))
+            hz_res_mgon = _normalize_gon(t_gon - z0_gon - o["hz_gon"]) * 1000.0
+            # Residuum im Bereich (-200, +200) mgon normieren
+            if hz_res_mgon > 200.0:
+                hz_res_mgon -= 400.0
+            points.append({
+                'name':     o['name'],
+                'ap_x':     o['X'],
+                'ap_y':     o['Y'],
+                'ap_z':     o['Z'],
+                'hz_gon':   o['hz_gon'],
+                'za_gon':   o['za_gon'],
+                'sd_m':     o['sd_m'],
+                'sd_calc':  sd_calc,
+                'sd_res_mm': sd_res * 1000.0,
+                'za_calc':  za_calc_gon,
+                'za_res_mgon': za_res * 1000.0,
+                't_gon':    t_gon,
+                'hz_res_mgon': hz_res_mgon,
+            })
+
+        details = {
+            'std_dev':    self._result.std_dev.tolist(),
+            'sigma0':     self._result.sigma0,
+            'dof':        self._result.dof,
+            'redundancy': self._result.redundancy,
+            'z0_gon':     z0_gon,
+            'points':     points,
+        }
+
         self.result_accepted.emit(
-            float(X_P), float(Y_P), float(Z_P), float(self._result_z0_rad)
+            float(X_P), float(Y_P), float(Z_P),
+            float(self._result_z0_rad), details
         )
         self.accept()

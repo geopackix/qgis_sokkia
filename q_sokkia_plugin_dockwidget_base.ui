@@ -368,6 +368,12 @@
             <property name="toolTip"><string>Fernsteuerungsdialog &#xF6;ffnen: Tachymeter drehen</string></property>
            </widget>
           </item>
+          <item>
+           <widget class="QPushButton" name="btn_absteckung">
+            <property name="text"><string>&#x1F3AF; Absteckung &#x2026;</string></property>
+            <property name="toolTip"><string>Absteckungsdialog &#xF6;ffnen: Punkt aus Layer anfahren</string></property>
+           </widget>
+          </item>
          </layout>
         </item>
 

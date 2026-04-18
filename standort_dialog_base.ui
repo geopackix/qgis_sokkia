@@ -38,6 +38,13 @@
        <property name="text"><string>0</string></property>
       </widget>
      </item>
+     <item row="2" column="4">
+      <widget class="QPushButton" name="btn_zero_orientation">
+       <property name="text"><string>z&#x2080; = 0</string></property>
+       <property name="toolTip"><string>Orientierung auf 0 gon setzen (aktueller Hz-Messwert wird als Nordrichtung &#xFC;bernommen)</string></property>
+       <property name="maximumWidth"><number>60</number></property>
+      </widget>
+     </item>
     </layout>
    </item>
 

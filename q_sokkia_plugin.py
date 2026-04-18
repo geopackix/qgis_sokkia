@@ -40,6 +40,7 @@ from .transfer_dialog import TransferDialog
 from .standort_dialog import StandortDialog
 from .zielpunkt_dialog import ZielpunktDialog
 from .fernsteuerung_dialog import FernsteuerungDialog
+from .absteckung_dialog import AbsteckungDialog
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -188,6 +189,7 @@ class QGISSokkia:
         self._standort_dlg = None
         self._zielpunkt_dlg = None
         self._fernsteuerung_dlg = None
+        self._absteckung_dlg = None
         
         self.serial = None
         
@@ -695,8 +697,35 @@ class QGISSokkia:
                 lines.append(f"  Höhe   (H)        : {fmt(d.get('h'))} m")
                 lines.append(f"  Instrumentenhöhe  : {fmt(d.get('ih'))} m")
                 lines.append(f"  Orientierung z0   : {fmt(d.get('orientation_gon'))} gon")
-                lines.append(f"  Anschlussrichtung : {d.get('ap_id','—')}  "
-                              f"X={fmt(d.get('ap_x'))}  Y={fmt(d.get('ap_y'))}")
+                res = d.get('resection')
+                if res:
+                    pts = res.get('points', [])
+                    std = res.get('std_dev', [0, 0, 0])
+                    lines.append(f"  [Freie Stationierung  —  {len(pts)} Anschlusspunkte]")
+                    lines.append(f"  Genauigkeit:  "
+                                 f"σX: ±{std[0]:.4f} m   "
+                                 f"σY: ±{std[1]:.4f} m   "
+                                 f"σZ: ±{std[2]:.4f} m   "
+                                 f"σ₀: {res.get('sigma0', 0):.4f} m   "
+                                 f"f: {res.get('dof', 0)}")
+                    lines.append(f"  {'Punkt':<14}  {'X-AP [m]':>14}  {'Y-AP [m]':>14}  {'Z-AP [m]':>9}  "
+                                 f"{'Hz [gon]':>10}  {'t [gon]':>10}  {'vHz [mgon]':>10}  "
+                                 f"{'SD [m]':>9}  {'SDber [m]':>9}  {'vSD [mm]':>8}  "
+                                 f"{'ZA [gon]':>10}  {'ZAber [gon]':>11}  {'vZA [mgon]':>10}")
+                    lines.append(f"  {'-'*14}  {'-'*14}  {'-'*14}  {'-'*9}  "
+                                 f"{'-'*10}  {'-'*10}  {'-'*10}  "
+                                 f"{'-'*9}  {'-'*9}  {'-'*8}  "
+                                 f"{'-'*10}  {'-'*11}  {'-'*10}")
+                    for pt in pts:
+                        lines.append(
+                            f"  {pt['name']:<14}  {pt['ap_x']:>14.4f}  {pt['ap_y']:>14.4f}  {pt['ap_z']:>9.4f}  "
+                            f"{pt['hz_gon']:>10.4f}  {pt['t_gon']:>10.4f}  {pt['hz_res_mgon']:>+10.1f}  "
+                            f"{pt['sd_m']:>9.4f}  {pt['sd_calc']:>9.4f}  {pt['sd_res_mm']:>+8.2f}  "
+                            f"{pt['za_gon']:>10.4f}  {pt['za_calc']:>11.4f}  {pt['za_res_mgon']:>+10.1f}"
+                        )
+                else:
+                    lines.append(f"  Anschlussrichtung : {d.get('ap_id','—')}  "
+                                 f"X={fmt(d.get('ap_x'))}  Y={fmt(d.get('ap_y'))}")
                 lines.append('')
                 current_station = d
                 messung_nr = 0
@@ -857,7 +886,7 @@ class QGISSokkia:
             sp_x = self.sp.get('RECHTS', 0)
             sp_y = self.sp.get('HOCH', 0)
             # Hz-Rohwert + Orientierung -> Nordrichtung in Gon
-            ha_oriented = ha_raw + self.orientation * 200.0 / math.pi
+            ha_oriented = (ha_raw + self.orientation * 200.0 / math.pi) % 400
             ha_rad = ha_oriented * math.pi / 200.0
             length = 100.0
             end_x = sp_x + length * math.sin(ha_rad)
@@ -898,6 +927,20 @@ class QGISSokkia:
             self._direction_rubber_band.reset(QgsWkbTypes.LineGeometry)
             self._direction_rubber_band = None
 
+    def _center_map(self, x: float, y: float):
+        """Zentriert die Karte auf den Punkt (x, y) in self.crsName."""
+        try:
+            pt = QgsPointXY(x, y)
+            src_crs = QgsCoordinateReferenceSystem(self.crsName)
+            dst_crs = QgsProject.instance().crs()
+            if src_crs.isValid() and dst_crs.isValid() and src_crs != dst_crs:
+                transform = QgsCoordinateTransform(src_crs, dst_crs, QgsProject.instance())
+                pt = transform.transform(pt)
+            self.canvas.setCenter(pt)
+            self.canvas.refresh()
+        except Exception as e:
+            print(f"[CenterMap] {e}")
+
     def addMPoint(self, sd, za, ha):
 
         def increment_last_segment(s):
@@ -923,8 +966,8 @@ class QGISSokkia:
             hd = sd * math.sin(za*math.pi/200)
             
             #orientierung
-            ha_raw_proto = ha * 200.0 / math.pi  # Rohwert in Gon für Protokoll
-            ha = ha + self.orientation*200 / math.pi
+            ha_raw_proto = ha % 400  # Rohwert in Gon für Protokoll
+            ha = (ha + self.orientation * 200.0 / math.pi) % 400
             
             th = float(self._zielpunkt_dlg.input_th.text())
             
@@ -979,6 +1022,7 @@ class QGISSokkia:
                 print('Punkt gespeichert:', save_id)
                 self.mlayer.updateExtents()
                 self.mlayer.triggerRepaint()
+                self._center_map(x, y)
                 # Protokoll-Eintrag
                 self._protokoll_add('MESSUNG', '', )
                 self._protokoll[-1]['data'] = {
@@ -1142,9 +1186,14 @@ class QGISSokkia:
         self.addAp()
         self.orientationArrow.addFeature(sp_x, sp_y, ap_x, ap_y)
         self.orientationArrow.addLayerToMapInstance()
-        
-    
-            
+
+    def set_orientation_zero(self):
+        """Setzt die Orientierung auf 0 gon (z₀ = 0)."""
+        self.orientation = 0.0
+        self._standort_dlg.input_orientation.setText("0.0000 gon")
+        self.iface.messageBar().pushInfo(
+            "Orientierung", "Orientierung z\u2080 auf 0.0000 gon gesetzt.")
+
     def draw_line(self, theta):
         # Erstelle eine RubberBand-Instanz
         
@@ -1340,6 +1389,7 @@ class QGISSokkia:
         self._standort_dlg.lbl_sp_dialog.setText(status_text)
         self.iface.messageBar().pushSuccess(
             "Standpunkt", f"Standpunkt '{sp_id}' gesetzt und in Layer gespeichert.")
+        self._center_map(x, y)
         # Protokoll-Eintrag
         ap_id = self._standort_dlg.input_ap.text() if self._standort_dlg.groupBox_8.isChecked() else ''
         ap_x = self._standort_dlg.input_ap_x.text() if self._standort_dlg.groupBox_8.isChecked() else ''
@@ -1370,6 +1420,12 @@ class QGISSokkia:
         self._fernsteuerung_dlg.raise_()
         self._fernsteuerung_dlg.activateWindow()
 
+    def open_absteckung_dialog(self):
+        """Absteckungs-Dialog anzeigen."""
+        self._absteckung_dlg.show()
+        self._absteckung_dlg.raise_()
+        self._absteckung_dlg.activateWindow()
+
     def open_resection_dialog(self):
         """Öffnet den Dialog für die Freie Stationierung."""
         dlg = ResectionDialog(
@@ -1394,7 +1450,7 @@ class QGISSokkia:
         """Aktiviert/deaktiviert den Transfermodus (pausiert readSerial)."""
         self._transfer_mode = active
 
-    def _apply_resection_result(self, x: float, y: float, z: float, z0_rad: float):
+    def _apply_resection_result(self, x: float, y: float, z: float, z0_rad: float, resection_details: dict = None):
         """
         Übernimmt das Ergebnis des Rückwärtsschnitts in den Standpunkt
         und die Orientierung des Plugins.
@@ -1430,6 +1486,16 @@ class QGISSokkia:
         # Standpunkt in Layer speichern
         self.addStation()
 
+        # Protokoll-Eintrag
+        self._protokoll_add('STATIONIERUNG', '')
+        self._protokoll[-1]['data'] = {
+            'sp_id': sp_id, 'x': x, 'y': y, 'h': z, 'ih': ih,
+            'orientation_gon': z0_gon,
+            'ap_id': '', 'ap_x': '', 'ap_y': '',
+            'resection': resection_details,
+        }
+        self._autosave_protokoll()
+
         self.iface.messageBar().pushSuccess(
             "Freie Stationierung",
             f"Standpunkt gesetzt \u2192 X={x:.4f} m, Y={y:.4f} m, "
@@ -1440,36 +1506,17 @@ class QGISSokkia:
         
         print("Control totalstation in " + direction + ' direction')
         
-        #get current angle value
-        self.mesaure_angle()
-        
-        #time.sleep(0.1)
-        
         stepsize = float(self._fernsteuerung_dlg.input_control_step.text())
         
         ha = self.measureValues["ha"]
         za = self.measureValues["za"]
         
         if direction == 'h':
-            ha = ha + step* stepsize
-            
-            if ha > 400:
-                ha = ha - 400
-            
-            if ha < 0:
-                ha = ha + 400   
+            ha = (ha + step * stepsize) % 400
             print(ha)
             
         if direction == 'v':
-            za = za + step* stepsize
-            
-            
-            if za > 400:
-                za = za - 400
-            
-            if za < 0:
-                za = za + 400
-                
+            za = (za + step * stepsize) % 400
             print(za)
             
         
@@ -1483,9 +1530,15 @@ class QGISSokkia:
             za_string = '0' + za_string
         
         
-        #generate new value and send command
-        command = f"*DHA{ha_string}VA{za_string}".encode('utf-8')
+        #generate new value and send command, then request angle update
+        command = f"*DHA{ha_string}VA{za_string}\r\n".encode('utf-8')
         self.serial.write(command)
+        # Sofort optimistisch aktualisieren, damit schnelle Folge-Klicks
+        # auf den bereits gesendeten Winkel aufaddieren
+        self.measureValues["ha"] = ha
+        self.measureValues["za"] = za
+        # Winkelmessung verzögert anfordern – Gerät muss erst ankommen
+        QTimer.singleShot(800, self.mesaure_angle)
         
         
            
@@ -1519,6 +1572,9 @@ class QGISSokkia:
             if self._fernsteuerung_dlg is None:
                 self._fernsteuerung_dlg = FernsteuerungDialog(parent=self.iface.mainWindow())
 
+            if self._absteckung_dlg is None:
+                self._absteckung_dlg = AbsteckungDialog(self, parent=self.iface.mainWindow())
+
             # connect to provide cleanup on closing of dockwidget
             self.dockwidget.closingPlugin.connect(self.onClosePlugin)
 
@@ -1549,12 +1605,14 @@ class QGISSokkia:
             # Hauptdock: Ziel- und Fernsteuerungs-Dialoge öffnen
             self.dockwidget.btn_open_zielpunkt.clicked.connect(self.open_zielpunkt_dialog)
             self.dockwidget.btn_open_fernsteuerung.clicked.connect(self.open_fernsteuerung_dialog)
+            self.dockwidget.btn_absteckung.clicked.connect(self.open_absteckung_dialog)
 
             # Standort-Dialog Verbindungen
             self._standort_dlg.btn_select_sp.clicked.connect(self.selectCoordinatesFromMap)
             self._standort_dlg.btn_select_ap.clicked.connect(self.selectApFromMap)
             self._standort_dlg.btn_setSp_confirm.clicked.connect(self.setSp)
             self._standort_dlg.btn_resection.clicked.connect(self.open_resection_dialog)
+            self._standort_dlg.btn_zero_orientation.clicked.connect(self.set_orientation_zero)
 
             #default values
             self._standort_dlg.input_standpoint.setText(self.sp['ID'])

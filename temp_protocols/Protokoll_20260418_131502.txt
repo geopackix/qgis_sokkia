@@ -1,0 +1,64 @@
+================================================================================
+  QGIS Sokkia Plugin  —  Messprotokoll
+================================================================================
+  Erstellt am  : 18.04.2026 13:17:49
+  Sitzungsstart: 18.04.2026 13:15:02
+  Gerät        : (unbekannt)
+  Port / Baud  : COM6  /  9600
+  Koordinaten  : EPSG:25832
+================================================================================
+
+  Stationierungen: 2    Messungen: 2
+
+[13:15:02.860] VERBINDUNG
+  Port: COM6  Baudrate: 9600  Gerät: ?  CRS: EPSG:25832
+
+--------------------------------------------------------------------------------
+[13:16:55.086] STATIONIERUNG #1
+  Standpunkt-Nr.    : SP1
+  Rechts (X)        : 567544.5628 m
+  Hoch   (Y)        : 5300108.6155 m
+  Höhe   (H)        : 669.0000 m
+  Instrumentenhöhe  : 1.6040 m
+  Orientierung z0   : -160.2569 gon
+  Anschlussrichtung : AP1  X=567521.9755  Y=5300077.2614
+
+--------------------------------------------------------------------------------
+[13:16:55.095] STATIONIERUNG #2
+  Standpunkt-Nr.    : SP1
+  Rechts (X)        : 567544.5628 m
+  Hoch   (Y)        : 5300108.6155 m
+  Höhe   (H)        : 669.0000 m
+  Instrumentenhöhe  : 1.6040 m
+  Orientierung z0   : -160.2569 gon
+  Anschlussrichtung : AP1  X=567521.9755  Y=5300077.2614
+
+[13:17:33.891] Messung #1  —  Pkt: Kontrolle_AP
+  Standpunkt        : SP1
+  Hz (Messwert)     : 18818.9197 gon
+  Hz (orientiert)   : 135.3500 gon
+  ZA (Zenitwinkel)  : 99.8820 gon
+  SD (Schrägdistanz): 38.6547 m
+  HD (Horizontaldist): 38.6546 m
+  Zielh. (th)       : 0.4000 m
+  Prismenkonstante  : -30.0 mm
+  Ber. X (Rechts)   : 567577.4098 m
+  Ber. Y (Hoch)     : 5300088.2376 m
+  Ber. Z (Höhe)     : 670.2756 m
+
+[13:17:49.545] Messung #2  —  Pkt: Kontrolle_AP
+  Standpunkt        : SP1
+  Hz (Messwert)     : 18818.9261 gon
+  Hz (orientiert)   : 135.3501 gon
+  ZA (Zenitwinkel)  : 99.8820 gon
+  SD (Schrägdistanz): 38.6550 m
+  HD (Horizontaldist): 38.6549 m
+  Zielh. (th)       : 0.4000 m
+  Prismenkonstante  : -30.0 mm
+  Ber. X (Rechts)   : 567577.4100 m
+  Ber. Y (Hoch)     : 5300088.2374 m
+  Ber. Z (Höhe)     : 670.2756 m
+
+================================================================================
+  Ende des Protokolls  —  2 Stationierung(en)  /  2 Messung(en)
+================================================================================

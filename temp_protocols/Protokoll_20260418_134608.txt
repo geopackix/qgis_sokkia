@@ -1,0 +1,184 @@
+================================================================================
+  QGIS Sokkia Plugin  —  Messprotokoll
+================================================================================
+  Erstellt am  : 18.04.2026 14:01:48
+  Sitzungsstart: 18.04.2026 13:46:08
+  Gerät        : (unbekannt)
+  Port / Baud  : COM6  /  9600
+  Koordinaten  : EPSG:25832
+================================================================================
+
+  Stationierungen: 1    Messungen: 12
+
+[13:46:08.246] VERBINDUNG
+  Port: COM6  Baudrate: 9600  Gerät: ?  CRS: EPSG:25832
+
+--------------------------------------------------------------------------------
+[13:46:36.212] STATIONIERUNG #1
+  Standpunkt-Nr.    : SP1
+  Rechts (X)        : 567544.5628 m
+  Hoch   (Y)        : 5300108.6155 m
+  Höhe   (H)        : 669.0000 m
+  Instrumentenhöhe  : 1.6040 m
+  Orientierung z0   : 239.7431 gon
+  Anschlussrichtung : AP1  X=567521.9755  Y=5300077.2614
+
+[13:46:54.030] Messung #1  —  Pkt: Kontrolle_AP
+  Standpunkt        : SP1
+  Hz (Messwert)     : 25464.7845 gon
+  Hz (orientiert)   : 639.7430 gon
+  ZA (Zenitwinkel)  : 99.8835 gon
+  SD (Schrägdistanz): 38.6551 m
+  HD (Horizontaldist): 38.6550 m
+  Zielh. (th)       : 0.4000 m
+  Prismenkonstante  : -30.0 mm
+  Ber. X (Rechts)   : 567521.9684 m
+  Ber. Y (Hoch)     : 5300077.2514 m
+  Ber. Z (Höhe)     : 670.2747 m
+
+[13:47:14.832] Messung #2  —  Pkt: Kontrolle_AP_2
+  Standpunkt        : SP1
+  Hz (Messwert)     : 25464.7782 gon
+  Hz (orientiert)   : 639.7429 gon
+  ZA (Zenitwinkel)  : 99.8835 gon
+  SD (Schrägdistanz): 38.6551 m
+  HD (Horizontaldist): 38.6550 m
+  Zielh. (th)       : 0.4000 m
+  Prismenkonstante  : -30.0 mm
+  Ber. X (Rechts)   : 567521.9684 m
+  Ber. Y (Hoch)     : 5300077.2514 m
+  Ber. Z (Höhe)     : 670.2747 m
+
+[13:48:47.790] Messung #3  —  Pkt: 103.0
+  Standpunkt        : SP1
+  Hz (Messwert)     : 9876.3855 gon
+  Hz (orientiert)   : 394.8810 gon
+  ZA (Zenitwinkel)  : 95.9231 gon
+  SD (Schrägdistanz): 12.9040 m
+  HD (Horizontaldist): 12.8775 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : 567543.5284 m
+  Ber. Y (Hoch)     : 5300121.4514 m
+  Ber. Z (Höhe)     : 671.4298 m
+
+[13:49:40.328] Messung #4  —  Pkt: 103.1
+  Standpunkt        : SP1
+  Hz (Messwert)     : 18010.7373 gon
+  Hz (orientiert)   : 522.6551 gon
+  ZA (Zenitwinkel)  : 98.4186 gon
+  SD (Schrägdistanz): 10.0841 m
+  HD (Horizontaldist): 10.0810 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : 567554.0122 m
+  Ber. Y (Hoch)     : 5300105.1033 m
+  Ber. Z (Höhe)     : 670.8545 m
+
+[13:50:17.639] Messung #5  —  Pkt: 103.2
+  Standpunkt        : SP1
+  Hz (Messwert)     : 21045.8857 gon
+  Hz (orientiert)   : 570.3311 gon
+  ZA (Zenitwinkel)  : 98.4291 gon
+  SD (Schrägdistanz): 21.3531 m
+  HD (Horizontaldist): 21.3466 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : 567554.1549 m
+  Ber. Y (Hoch)     : 5300089.5454 m
+  Ber. Z (Höhe)     : 671.1308 m
+
+[13:51:04.602] Messung #6  —  Pkt: 103.3
+  Standpunkt        : SP1
+  Hz (Messwert)     : 24480.5449 gon
+  Hz (orientiert)   : 624.2826 gon
+  ZA (Zenitwinkel)  : 97.4629 gon
+  SD (Schrägdistanz): 35.9174 m
+  HD (Horizontaldist): 35.8889 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : 567531.2033 m
+  Ber. Y (Hoch)     : 5300075.3058 m
+  Ber. Z (Höhe)     : 672.0350 m
+
+[13:51:47.935] Messung #7  —  Pkt: 103.4
+  Standpunkt        : SP1
+  Hz (Messwert)     : 447.4673 gon
+  Hz (orientiert)   : 246.7719 gon
+  ZA (Zenitwinkel)  : 96.8192 gon
+  SD (Schrägdistanz): 58.1539 m
+  HD (Horizontaldist): 58.0813 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : 567505.6275 m
+  Ber. Y (Hoch)     : 5300065.5169 m
+  Ber. Z (Höhe)     : 673.5084 m
+
+[13:53:06.923] Messung #8  —  Pkt: AP_Kontrolle_3
+  Standpunkt        : SP1
+  Hz (Messwert)     : 25464.5426 gon
+  Hz (orientiert)   : 639.7392 gon
+  ZA (Zenitwinkel)  : 99.8833 gon
+  SD (Schrägdistanz): 38.6549 m
+  HD (Horizontaldist): 38.6548 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : -30.0 mm
+  Ber. X (Rechts)   : 567521.9704 m
+  Ber. Y (Hoch)     : 5300077.2502 m
+  Ber. Z (Höhe)     : 670.6749 m
+
+[13:56:24.657] Messung #9  —  Pkt: 103.5
+  Standpunkt        : SP1
+  Hz (Messwert)     : 23831.0527 gon
+  Hz (orientiert)   : 614.0804 gon
+  ZA (Zenitwinkel)  : 103.0052 gon
+  SD (Schrägdistanz): 21.8693 m
+  HD (Horizontaldist): 21.8449 m
+  Zielh. (th)       : 0.4000 m
+  Prismenkonstante  : -30.0 mm
+  Ber. X (Rechts)   : 567539.7706 m
+  Ber. Y (Hoch)     : 5300087.3027 m
+  Ber. Z (Höhe)     : 669.1720 m
+
+[13:58:41.377] Messung #10  —  Pkt: 103.6
+  Standpunkt        : SP1
+  Hz (Messwert)     : 21554.8823 gon
+  Hz (orientiert)   : 578.3264 gon
+  ZA (Zenitwinkel)  : 106.9613 gon
+  SD (Schrägdistanz): 12.3525 m
+  HD (Horizontaldist): 12.2787 m
+  Zielh. (th)       : 0.4000 m
+  Prismenkonstante  : -30.0 mm
+  Ber. X (Rechts)   : 567548.6628 m
+  Ber. Y (Hoch)     : 5300097.0415 m
+  Ber. Z (Höhe)     : 668.8560 m
+
+[14:00:53.736] Messung #11  —  Pkt: Gulli_1_OK
+  Standpunkt        : SP1
+  Hz (Messwert)     : 22520.5199 gon
+  Hz (orientiert)   : 593.4946 gon
+  ZA (Zenitwinkel)  : 121.5774 gon
+  SD (Schrägdistanz): 3.9513 m
+  HD (Horizontaldist): 3.7265 m
+  Zielh. (th)       : 0.4000 m
+  Prismenkonstante  : -30.0 mm
+  Ber. X (Rechts)   : 567544.9429 m
+  Ber. Y (Hoch)     : 5300104.9084 m
+  Ber. Z (Höhe)     : 668.8903 m
+
+[14:01:48.776] Messung #12  —  Pkt: Gulli_1_OK
+  Standpunkt        : SP1
+  Hz (Messwert)     : 23376.3661 gon
+  Hz (orientiert)   : 606.9382 gon
+  ZA (Zenitwinkel)  : 139.2892 gon
+  SD (Schrägdistanz): 2.9050 m
+  HD (Horizontaldist): 2.3691 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : 567544.3051 m
+  Ber. Y (Hoch)     : 5300106.2604 m
+  Ber. Z (Höhe)     : 668.9228 m
+
+================================================================================
+  Ende des Protokolls  —  1 Stationierung(en)  /  12 Messung(en)
+================================================================================
