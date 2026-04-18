@@ -22,7 +22,7 @@ from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
     QPushButton, QTableWidget, QTableWidgetItem,
     QLabel, QComboBox, QHeaderView, QMessageBox,
-    QSizePolicy, QFrame,
+    QSizePolicy, QFrame, QCheckBox,
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QColor, QFont
@@ -139,10 +139,21 @@ class ResectionDialog(QDialog):
         self.field_x.setAllowEmptyFieldName(True)
         ll.addWidget(self.field_x, 1)
 
+        self.chk_geom_x = QCheckBox("$x")
+        self.chk_geom_x.setToolTip("X-Koordinate aus der Geometrie des Features verwenden")
+        self.chk_geom_x.toggled.connect(lambda on: self.field_x.setDisabled(on))
+        self.chk_geom_x.toggled.connect(self._refresh_coord_display)
+        ll.addWidget(self.chk_geom_x)
         ll.addWidget(QLabel("Y / Hoch:"))
         self.field_y = QgsFieldComboBox()
         self.field_y.setAllowEmptyFieldName(True)
         ll.addWidget(self.field_y, 1)
+
+        self.chk_geom_y = QCheckBox("$y")
+        self.chk_geom_y.setToolTip("Y-Koordinate aus der Geometrie des Features verwenden")
+        self.chk_geom_y.toggled.connect(lambda on: self.field_y.setDisabled(on))
+        self.chk_geom_y.toggled.connect(self._refresh_coord_display)
+        ll.addWidget(self.chk_geom_y)
 
         ll.addWidget(QLabel("Z / Höhe:"))
         self.field_z = QgsFieldComboBox()
@@ -357,7 +368,8 @@ class ResectionDialog(QDialog):
     def _get_ap_coords(self, feature_id):
         """
         Gibt (X, Y, Z) eines bekannten-Punkt-Features zurück.
-        X/Y/Z werden aus den gewählten Feldern gelesen oder aus der Geometrie.
+        X/Y werden aus der Geometrie gelesen wenn $x/$y-Checkbox aktiv ist,
+        sonst aus den gewählten Attributfeldern.
         """
         layer = self.layer_combo.currentLayer()
         if layer is None:
@@ -366,15 +378,13 @@ class ResectionDialog(QDialog):
         x_field = self.field_x.currentField()
         y_field = self.field_y.currentField()
         z_field = self.field_z.currentField()
+        use_geom_x = self.chk_geom_x.isChecked()
+        use_geom_y = self.chk_geom_y.isChecked()
         try:
-            if x_field and y_field:
-                X = float(feat[x_field])
-                Y = float(feat[y_field])
-                Z = float(feat[z_field]) if z_field else 0.0
-            else:
-                pt = feat.geometry().asPoint()
-                X, Y = pt.x(), pt.y()
-                Z = 0.0
+            pt = feat.geometry().asPoint()
+            X = pt.x() if use_geom_x else (float(feat[x_field]) if x_field else pt.x())
+            Y = pt.y() if use_geom_y else (float(feat[y_field]) if y_field else pt.y())
+            Z = float(feat[z_field]) if z_field else 0.0
         except Exception:
             return None
         return X, Y, Z
@@ -462,6 +472,13 @@ class ResectionDialog(QDialog):
             idx = combo_ap.findData(current_fid)
             combo_ap.setCurrentIndex(max(idx, 0))
             combo_ap.blockSignals(False)
+            self._on_ap_changed(row)
+
+    def _refresh_coord_display(self, *args):
+        """Aktualisiert die Koordinatenspalte aller Tabellenzeilen (nach Checkbox-Änderung)."""
+        if not hasattr(self, 'table'):
+            return
+        for row in range(self.table.rowCount()):
             self._on_ap_changed(row)
     def _on_measure_layer_changed(self, layer):
         """Wird aufgerufen, wenn der Messlayer im Combo gewechselt wird."""

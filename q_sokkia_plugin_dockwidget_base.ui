@@ -6,13 +6,13 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1400</width>
-    <height>340</height>
+    <width>760</width>
+    <height>220</height>
    </rect>
   </property>
   <property name="minimumSize">
    <size>
-    <width>900</width>
+    <width>500</width>
     <height>0</height>
    </size>
   </property>
@@ -21,536 +21,354 @@
   </property>
   <widget class="QWidget" name="dockWidgetContents">
    <property name="styleSheet">
-    <string notr="true">QGroupBox{font-weight:bold;border:1px solid #c0c0c0;border-radius:5px;margin-top:8px;padding-top:4px;}QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;padding:0 4px;color:#333;}QLineEdit{border:1px solid #bbb;border-radius:3px;padding:2px 4px;background:white;}QLineEdit:disabled{background:#f0f0f0;color:#888;}QPushButton{border:1px solid #aaa;border-radius:3px;padding:3px 8px;background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #f8f8f8,stop:1 #e0e0e0);min-height:22px;}QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8f0fe,stop:1 #c8d8f8);border-color:#6699cc;}QPushButton:pressed{background:#c0c8d8;}QPushButton:disabled{color:#aaa;background:#f0f0f0;border-color:#d0d0d0;}</string>
+    <string notr="true">QGroupBox{font-weight:bold;border:1px solid #c0c0c0;border-radius:5px;margin-top:8px;padding-top:4px;}QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;padding:0 4px;color:#333;}QLineEdit{border:1px solid #bbb;border-radius:3px;padding:2px 4px;background:white;}QLineEdit:disabled{background:#f0f0f0;color:#888;}QPushButton{border:1px solid #aaa;border-radius:3px;padding:3px 8px;background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #f8f8f8,stop:1 #e0e0e0);min-height:22px;}QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8f0fe,stop:1 #c8d8f8);border-color:#6699cc;}QPushButton:pressed{background:#c0c8d8;}QPushButton:disabled{color:#aaa;background:#f0f0f0;border-color:#d0d0d0;}QSplitter::handle{background:#c8c8c8;}QSplitter::handle:horizontal{width:5px;}QSplitter::handle:hover{background:#6699cc;}</string>
    </property>
    <layout class="QHBoxLayout" name="mainHBox">
-    <property name="spacing"><number>4</number></property>
+    <property name="spacing"><number>0</number></property>
     <property name="leftMargin"><number>4</number></property>
     <property name="topMargin"><number>4</number></property>
     <property name="rightMargin"><number>4</number></property>
     <property name="bottomMargin"><number>4</number></property>
-
-    <!-- PANEL 1: Geräteverbindung -->
     <item>
-     <widget class="QGroupBox" name="groupBox">
-      <property name="title"><string>Geräteverbindung</string></property>
-      <property name="minimumWidth"><number>185</number></property>
-      <property name="maximumWidth"><number>230</number></property>
-      <layout class="QVBoxLayout" name="vl_conn">
-       <property name="spacing"><number>5</number></property>
-       <item>
-        <layout class="QFormLayout" name="form_conn">
-         <property name="horizontalSpacing"><number>6</number></property>
-         <item row="0" column="0">
-          <widget class="QLabel" name="label"><property name="text"><string>Port</string></property></widget>
-         </item>
-         <item row="0" column="1">
-          <layout class="QHBoxLayout" name="hl_port">
-           <property name="spacing"><number>2</number></property>
+     <widget class="QSplitter" name="splitter">
+      <property name="orientation">
+       <enum>Qt::Horizontal</enum>
+      </property>
+      <property name="childrenCollapsible">
+       <bool>false</bool>
+      </property>
+
+      <!-- PANEL 1: Ger&#xE4;teverbindung -->
+      <widget class="QGroupBox" name="groupBox">
+       <property name="title"><string>Ger&#xE4;teverbindung</string></property>
+       <property name="minimumWidth"><number>160</number></property>
+       <layout class="QVBoxLayout" name="vl_conn">
+        <property name="spacing"><number>5</number></property>
+        <item>
+         <layout class="QFormLayout" name="form_conn">
+          <property name="horizontalSpacing"><number>6</number></property>
+          <item row="0" column="0">
+           <widget class="QLabel" name="label"><property name="text"><string>Port</string></property></widget>
+          </item>
+          <item row="0" column="1">
+           <layout class="QHBoxLayout" name="hl_port">
+            <property name="spacing"><number>2</number></property>
+            <item>
+             <widget class="QComboBox" name="combo_port">
+              <property name="toolTip"><string>Verf&#xFC;gbare serielle Ports</string></property>
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                <horstretch>1</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btn_refresh_ports">
+              <property name="text"><string>&#x27F3;</string></property>
+              <property name="toolTip"><string>Portliste aktualisieren</string></property>
+              <property name="maximumWidth"><number>28</number></property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item row="1" column="0">
+           <widget class="QLabel" name="label_2"><property name="text"><string>Baudrate</string></property></widget>
+          </item>
+          <item row="1" column="1">
+           <widget class="QLineEdit" name="input_baud"><property name="text"><string>9600</string></property></widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QgsProjectionSelectionWidget" name="mQgsProjectionSelectionWidget"/>
+        </item>
+        <item>
+         <spacer><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>4</height></size></property></spacer>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="hl_conn_btns">
+          <item>
+           <widget class="QPushButton" name="btn_connect">
+            <property name="text"><string>&#x25B6;  Verbinden</string></property>
+            <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8f5e9,stop:1 #c8e6c9);border-color:#81c784;font-weight:bold;}</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_disconnect">
+            <property name="enabled"><bool>false</bool></property>
+            <property name="text"><string>&#x25A0;  Trennen</string></property>
+            <property name="styleSheet"><string notr="true">QPushButton:enabled{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #ffebee,stop:1 #ffcdd2);border-color:#e57373;font-weight:bold;}</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_init">
+          <property name="text"><string>&#x26A1; Initialisieren (ohne Ger&#xE4;t)</string></property>
+          <property name="toolTip"><string>Layer anlegen und Plugin ohne Verbindung zu einem Tachymeter verwenden</string></property>
+          <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fff8e1,stop:1 #ffecb3);border-color:#ffd54f;font-weight:bold;}</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="lbl_device_info">
+          <property name="text"><string>&#x2014;</string></property>
+          <property name="wordWrap"><bool>true</bool></property>
+          <property name="styleSheet"><string notr="true">color:#555;font-size:9px;padding:1px 2px;font-style:italic;</string></property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_transfer">
+          <property name="text"><string>&#x1F4E1; Koordinaten-Transfer &#x2026;</string></property>
+          <property name="toolTip"><string>Koordinaten zwischen QGIS-Layer und Tachymeter &#xFC;bertragen (Upload/Download im SDR33-Format)</string></property>
+          <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8eaf6,stop:1 #c5cae9);border-color:#7986cb;font-weight:bold;}</string></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+
+      <!-- PANEL 2: Standpunkt (kompakt) -->
+      <widget class="QGroupBox" name="groupBox_2">
+       <property name="title"><string>Standpunkt</string></property>
+       <property name="minimumWidth"><number>140</number></property>
+       <layout class="QVBoxLayout" name="vl_station">
+        <property name="spacing"><number>5</number></property>
+        <item>
+         <layout class="QHBoxLayout" name="hl_sp_status">
+          <property name="spacing"><number>4</number></property>
+          <item>
+           <widget class="QLabel" name="lbl_x">
+            <property name="text"><string>X: &#x2014;</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+            <property name="styleSheet"><string notr="true">padding:2px 4px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;font-weight:bold;color:#1b5e20;</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_y">
+            <property name="text"><string>Y: &#x2014;</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+            <property name="styleSheet"><string notr="true">padding:2px 4px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;font-weight:bold;color:#1b5e20;</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="lbl_z">
+            <property name="text"><string>H: &#x2014;</string></property>
+            <property name="alignment"><set>Qt::AlignCenter</set></property>
+            <property name="styleSheet"><string notr="true">padding:2px 4px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;font-weight:bold;color:#1b5e20;</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QLabel" name="lbl_sp">
+          <property name="text"><string>Standpunkt noch nicht gesetzt</string></property>
+          <property name="wordWrap"><bool>true</bool></property>
+          <property name="styleSheet"><string notr="true">color:#666;font-style:italic;padding:1px 0;font-size:10px;</string></property>
+         </widget>
+        </item>
+        <item>
+         <spacer>
+          <property name="orientation"><enum>Qt::Vertical</enum></property>
+          <property name="sizeHint" stdset="0"><size><width>0</width><height>4</height></size></property>
+         </spacer>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_setSp">
+          <property name="text"><string>&#x1F4CD; Standort &#x2026;</string></property>
+          <property name="toolTip"><string>Standortdialog &#xF6;ffnen: bekannter Punkt, Anschlussrichtung oder Freie Stationierung</string></property>
+          <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e3f2fd,stop:1 #bbdefb);border-color:#64b5f6;font-weight:bold;}</string></property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+
+      <!-- PANEL 3: Messung &amp; Steuerung (kompakt) -->
+      <widget class="QGroupBox" name="groupBox_6">
+       <property name="title"><string>Messung &amp; Steuerung</string></property>
+       <property name="minimumWidth"><number>300</number></property>
+       <layout class="QVBoxLayout" name="vl_measure_main">
+        <property name="spacing"><number>5</number></property>
+
+        <!-- Liveansicht -->
+        <item>
+         <widget class="QGroupBox" name="groupBox_5">
+          <property name="title"><string>Liveansicht</string></property>
+          <layout class="QVBoxLayout" name="vl_live">
+           <property name="spacing"><number>3</number></property>
+           <property name="leftMargin"><number>4</number></property>
+           <property name="topMargin"><number>4</number></property>
+           <property name="rightMargin"><number>4</number></property>
+           <property name="bottomMargin"><number>4</number></property>
            <item>
-            <widget class="QComboBox" name="combo_port">
-             <property name="toolTip"><string>Verfügbare serielle Ports</string></property>
-             <property name="sizePolicy">
-              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
-               <horstretch>1</horstretch>
-               <verstretch>0</verstretch>
-              </sizepolicy>
-             </property>
-            </widget>
+            <layout class="QHBoxLayout" name="horizontalLayout_9">
+             <property name="spacing"><number>6</number></property>
+             <item>
+              <widget class="QLabel" name="lbl_ha">
+               <property name="text"><string>Hz: &#x2014;</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="styleSheet"><string notr="true">font-size:13px;font-weight:bold;padding:3px 6px;background:#263238;color:#80cbc4;border-radius:3px;font-family:monospace;</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="lbl_za">
+               <property name="text"><string>VZ: &#x2014;</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="styleSheet"><string notr="true">font-size:13px;font-weight:bold;padding:3px 6px;background:#263238;color:#80cbc4;border-radius:3px;font-family:monospace;</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="lbl_sd">
+               <property name="text"><string>SD: &#x2014;</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="styleSheet"><string notr="true">font-size:13px;font-weight:bold;padding:3px 6px;background:#263238;color:#ffcc02;border-radius:3px;font-family:monospace;</string></property>
+              </widget>
+             </item>
+            </layout>
            </item>
            <item>
-            <widget class="QPushButton" name="btn_refresh_ports">
-             <property name="text"><string>⟳</string></property>
-             <property name="toolTip"><string>Portliste aktualisieren</string></property>
-             <property name="maximumWidth"><number>28</number></property>
+            <layout class="QHBoxLayout" name="horizontalLayout_12">
+             <property name="spacing"><number>6</number></property>
+             <item>
+              <widget class="QLabel" name="lbl_calc_x">
+               <property name="text"><string>X: &#x2014;</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="styleSheet"><string notr="true">padding:2px 5px;background:#e3f2fd;border:1px solid #90caf9;border-radius:3px;font-weight:bold;</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="lbl_calc_y">
+               <property name="text"><string>Y: &#x2014;</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="styleSheet"><string notr="true">padding:2px 5px;background:#e3f2fd;border:1px solid #90caf9;border-radius:3px;font-weight:bold;</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="lbl_calc_z">
+               <property name="text"><string>Z: &#x2014;</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="styleSheet"><string notr="true">padding:2px 5px;background:#e3f2fd;border:1px solid #90caf9;border-radius:3px;font-weight:bold;</string></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </widget>
+        </item>
+
+        <!-- Messtasten -->
+        <item>
+         <layout class="QHBoxLayout" name="hl_measure_btns">
+          <property name="spacing"><number>4</number></property>
+          <item>
+           <widget class="QPushButton" name="btn_measure_a">
+            <property name="enabled"><bool>false</bool></property>
+            <property name="text"><string>&#x2220; Winkel</string></property>
+            <property name="toolTip"><string>Winkelmessung ausl&#xF6;sen</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_measure">
+            <property name="enabled"><bool>false</bool></property>
+            <property name="text"><string>&#x2194; Strecke</string></property>
+            <property name="toolTip"><string>Streckenmessung ausl&#xF6;sen und Punkt speichern</string></property>
+            <property name="styleSheet"><string notr="true">QPushButton:enabled{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e3f2fd,stop:1 #bbdefb);border-color:#64b5f6;font-weight:bold;}</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_measure_stop">
+            <property name="enabled"><bool>false</bool></property>
+            <property name="text"><string>&#x25A0; Stop</string></property>
+            <property name="toolTip"><string>Messung stoppen</string></property>
+            <property name="styleSheet"><string notr="true">QPushButton:enabled{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fff3e0,stop:1 #ffe0b2);border-color:#ffb74d;}</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_laser">
+            <property name="enabled"><bool>false</bool></property>
+            <property name="text"><string>Laser einschalten</string></property>
+            <property name="toolTip"><string>Laserpointer ein-/ausschalten</string></property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+
+        <!-- Linienabstand -->
+        <item>
+         <widget class="QGroupBox" name="groupBox_linedist">
+          <property name="title"><string>Linienabstand</string></property>
+          <property name="checkable"><bool>true</bool></property>
+          <property name="checked"><bool>false</bool></property>
+          <layout class="QVBoxLayout" name="vl_linedist">
+           <property name="spacing"><number>3</number></property>
+           <property name="leftMargin"><number>4</number></property>
+           <property name="topMargin"><number>4</number></property>
+           <property name="rightMargin"><number>4</number></property>
+           <property name="bottomMargin"><number>4</number></property>
+           <item>
+            <layout class="QHBoxLayout" name="hl_linedist">
+             <property name="spacing"><number>4</number></property>
+             <item>
+              <widget class="QgsMapLayerComboBox" name="combo_line_layer">
+               <property name="toolTip"><string>Linienlayer ausw&#xE4;hlen, zu dem der Abstand berechnet wird</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="lbl_line_distance">
+               <property name="text"><string>Abstand: &#x2014;</string></property>
+               <property name="alignment"><set>Qt::AlignCenter</set></property>
+               <property name="styleSheet"><string notr="true">font-size:13px;font-weight:bold;padding:3px 6px;background:#263238;color:#ff9800;border-radius:3px;font-family:monospace;</string></property>
+              </widget>
+             </item>
+            </layout>
+           </item>
+           <item>
+            <widget class="QLabel" name="lbl_line_selection">
+             <property name="text"><string>Kein Objekt ausgew&#xE4;hlt &#x2013; n&#xE4;chste Linie wird verwendet</string></property>
+             <property name="styleSheet"><string notr="true">color:#999;font-style:italic;font-size:9px;</string></property>
             </widget>
            </item>
           </layout>
-         </item>
-         <item row="1" column="0">
-          <widget class="QLabel" name="label_2"><property name="text"><string>Baudrate</string></property></widget>
-         </item>
-         <item row="1" column="1">
-          <widget class="QLineEdit" name="input_baud"><property name="text"><string>9600</string></property></widget>
-         </item>
-        </layout>
-       </item>
-       <item>
-        <widget class="QgsProjectionSelectionWidget" name="mQgsProjectionSelectionWidget"/>
-       </item>
-       <item>
-        <spacer><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>0</width><height>4</height></size></property></spacer>
-       </item>
-       <item>
-        <layout class="QHBoxLayout" name="hl_conn_btns">
-         <item>
-          <widget class="QPushButton" name="btn_connect">
-           <property name="text"><string>▶  Verbinden</string></property>
-           <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8f5e9,stop:1 #c8e6c9);border-color:#81c784;font-weight:bold;}</string></property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_disconnect">
-           <property name="enabled"><bool>false</bool></property>
-           <property name="text"><string>■  Trennen</string></property>
-           <property name="styleSheet"><string notr="true">QPushButton:enabled{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #ffebee,stop:1 #ffcdd2);border-color:#e57373;font-weight:bold;}</string></property>
-          </widget>
-         </item>
-        </layout>
-       </item>
-       <item>
-        <widget class="QPushButton" name="btn_init">
-         <property name="text"><string>⚡ Initialisieren (ohne Gerät)</string></property>
-         <property name="toolTip"><string>Layer anlegen und Plugin ohne Verbindung zu einem Tachymeter verwenden</string></property>
-         <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fff8e1,stop:1 #ffecb3);border-color:#ffd54f;font-weight:bold;}</string></property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QPushButton" name="btn_transfer">
-         <property name="text"><string>📡 Koordinaten-Transfer …</string></property>
-         <property name="toolTip"><string>Koordinaten zwischen QGIS-Layer und Tachymeter übertragen (Upload/Download im SDR33-Format)</string></property>
-         <property name="styleSheet"><string notr="true">QPushButton{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8eaf6,stop:1 #c5cae9);border-color:#7986cb;font-weight:bold;}</string></property>
-        </widget>
-       </item>
-      </layout>
-     </widget>
-    </item>
+         </widget>
+        </item>
 
-    <item>
-     <widget class="QFrame" name="sep1">
-      <property name="frameShape"><enum>QFrame::VLine</enum></property>
-      <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
-     </widget>
-    </item>
-
-    <!-- PANEL 2: Standpunkt -->
-    <item>
-     <widget class="QGroupBox" name="groupBox_2">
-      <property name="title"><string>Standpunkt</string></property>
-      <property name="minimumWidth"><number>310</number></property>
-      <property name="maximumWidth"><number>420</number></property>
-      <layout class="QVBoxLayout" name="vl_station">
-       <property name="spacing"><number>5</number></property>
-
-       <item>
-        <layout class="QHBoxLayout" name="hl_sp_status">
-         <property name="spacing"><number>4</number></property>
-         <item>
-          <widget class="QLabel" name="lbl_x">
-           <property name="text"><string>X: —</string></property>
-           <property name="alignment"><set>Qt::AlignCenter</set></property>
-           <property name="styleSheet"><string notr="true">padding:2px 4px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;font-weight:bold;color:#1b5e20;</string></property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="lbl_y">
-           <property name="text"><string>Y: —</string></property>
-           <property name="alignment"><set>Qt::AlignCenter</set></property>
-           <property name="styleSheet"><string notr="true">padding:2px 4px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;font-weight:bold;color:#1b5e20;</string></property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="lbl_z">
-           <property name="text"><string>H: —</string></property>
-           <property name="alignment"><set>Qt::AlignCenter</set></property>
-           <property name="styleSheet"><string notr="true">padding:2px 4px;background:#e8f5e9;border:1px solid #a5d6a7;border-radius:3px;font-weight:bold;color:#1b5e20;</string></property>
-          </widget>
-         </item>
-        </layout>
-       </item>
-
-       <item>
-        <layout class="QGridLayout" name="grid_sp">
-         <property name="horizontalSpacing"><number>5</number></property>
-         <property name="verticalSpacing"><number>3</number></property>
-         <item row="0" column="0"><widget class="QLabel" name="label_8"><property name="text"><string>Rechts</string></property></widget></item>
-         <item row="0" column="1"><widget class="QLineEdit" name="input_sp_x"><property name="text"><string>0</string></property></widget></item>
-         <item row="0" column="2"><widget class="QLabel" name="lbl_x1"><property name="text"><string>Hoch</string></property></widget></item>
-         <item row="0" column="3"><widget class="QLineEdit" name="input_sp_y"><property name="text"><string>0</string></property></widget></item>
-         <item row="1" column="0"><widget class="QLabel" name="label_9"><property name="text"><string>Höhe</string></property></widget></item>
-         <item row="1" column="1"><widget class="QLineEdit" name="input_sp_z"><property name="text"><string>0</string></property></widget></item>
-         <item row="1" column="2"><widget class="QLabel" name="label_3"><property name="text"><string>Pkt.-Nr.</string></property></widget></item>
-         <item row="1" column="3"><widget class="QLineEdit" name="input_standpoint"><property name="placeholderText"><string>SP1</string></property></widget></item>
-         <item row="2" column="0"><widget class="QLabel" name="label_4"><property name="text"><string>Inst.-H.</string></property></widget></item>
-         <item row="2" column="1"><widget class="QLineEdit" name="input_ih"><property name="text"><string>0</string></property></widget></item>
-         <item row="2" column="2"><widget class="QLabel" name="label_11"><property name="text"><string>Orient.</string></property></widget></item>
-         <item row="2" column="3">
-          <widget class="QLineEdit" name="input_orientation">
-           <property name="enabled"><bool>false</bool></property>
-           <property name="text"><string>0</string></property>
-          </widget>
-         </item>
-        </layout>
-       </item>
-
-       <item>
-        <layout class="QHBoxLayout" name="hl_sp_btns">
-         <property name="spacing"><number>4</number></property>
-         <item>
-          <widget class="QPushButton" name="btn_select_sp">
-           <property name="text"><string>📍 Karte</string></property>
-           <property name="toolTip"><string>Koordinaten per Klick in der Karte übernehmen</string></property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_setSp">
-           <property name="enabled"><bool>false</bool></property>
-           <property name="text"><string>✓ Setzen</string></property>
-           <property name="toolTip"><string>Standpunkt mit eingegebenen Werten setzen und Orientierung berechnen</string></property>
-           <property name="styleSheet"><string notr="true">QPushButton:enabled{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e3f2fd,stop:1 #bbdefb);border-color:#64b5f6;font-weight:bold;}</string></property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_resection">
-           <property name="text"><string>⊕ Freie Stationierung …</string></property>
-           <property name="toolTip"><string>Standpunkt aus Messungen zu bekannten Anschlusspunkten berechnen (Rückwärtsschnitt)</string></property>
-          </widget>
-         </item>
-        </layout>
-       </item>
-
-       <item>
-        <widget class="QLabel" name="lbl_sp">
-         <property name="text"><string>Standpunkt noch nicht gesetzt</string></property>
-         <property name="wordWrap"><bool>true</bool></property>
-         <property name="styleSheet"><string notr="true">color:#666;font-style:italic;padding:1px 0;</string></property>
-        </widget>
-       </item>
-
-       <item>
-        <widget class="QGroupBox" name="groupBox_8">
-         <property name="title"><string>Anschlussrichtung (Hz manuell)</string></property>
-         <property name="checkable"><bool>true</bool></property>
-         <property name="checked"><bool>false</bool></property>
-         <layout class="QGridLayout" name="grid_ap">
-          <property name="horizontalSpacing"><number>5</number></property>
-          <property name="verticalSpacing"><number>3</number></property>
-          <property name="leftMargin"><number>4</number></property>
-          <property name="topMargin"><number>4</number></property>
-          <property name="rightMargin"><number>4</number></property>
-          <property name="bottomMargin"><number>4</number></property>
-          <item row="0" column="0"><widget class="QLabel" name="label_14"><property name="text"><string>AP-Nr.</string></property></widget></item>
-          <item row="0" column="1"><widget class="QLineEdit" name="input_ap"><property name="text"><string>AP1</string></property></widget></item>
-          <item row="0" column="2"><widget class="QLabel" name="label_12"><property name="text"><string>Rechts</string></property></widget></item>
-          <item row="0" column="3"><widget class="QLineEdit" name="input_ap_x"><property name="text"><string>0</string></property></widget></item>
-          <item row="1" column="2"><widget class="QLabel" name="label_13"><property name="text"><string>Hoch</string></property></widget></item>
-          <item row="1" column="3"><widget class="QLineEdit" name="input_ap_y"><property name="text"><string>1</string></property></widget></item>
-         </layout>
-        </widget>
-       </item>
-
-      </layout>
-     </widget>
-    </item>
-
-    <item>
-     <widget class="QFrame" name="sep2">
-      <property name="frameShape"><enum>QFrame::VLine</enum></property>
-      <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
-     </widget>
-    </item>
-
-    <!-- PANEL 3: Zielpunkt -->
-    <item>
-     <widget class="QGroupBox" name="groupBox_3">
-      <property name="title"><string>Zielpunkt</string></property>
-      <property name="minimumWidth"><number>200</number></property>
-      <property name="maximumWidth"><number>265</number></property>
-      <layout class="QVBoxLayout" name="vl_target">
-       <property name="spacing"><number>5</number></property>
-       <item>
-        <layout class="QFormLayout" name="form_target">
-         <item row="0" column="0"><widget class="QLabel" name="label_7"><property name="text"><string>Punkt-Nr.</string></property></widget></item>
-         <item row="0" column="1"><widget class="QLineEdit" name="input_targetid"><property name="text"><string>P.0</string></property></widget></item>
-         <item row="1" column="0"><widget class="QLabel" name="label_5"><property name="text"><string>Zielhöhe [m]</string></property></widget></item>
-         <item row="1" column="1"><widget class="QLineEdit" name="input_th"><property name="text"><string>0</string></property></widget></item>
-        </layout>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="cb_autoincerement">
-         <property name="text"><string>Autoinkrement</string></property>
-         <property name="checked"><bool>true</bool></property>
-        </widget>
-       </item>
-       <item>
-        <spacer name="verticalSpacer_3">
-         <property name="orientation"><enum>Qt::Vertical</enum></property>
-         <property name="sizeHint" stdset="0"><size><width>0</width><height>4</height></size></property>
-        </spacer>
-       </item>
-       <item>
-        <widget class="QGroupBox" name="groupBox_4">
-         <property name="title"><string>Zieltyp &amp; Prismenkonstante</string></property>
-         <layout class="QVBoxLayout" name="vl_targettype">
+        <!-- Zeile: Zielstatus + Dialoge &#xF6;ffnen -->
+        <item>
+         <layout class="QHBoxLayout" name="hl_detail_btns">
           <property name="spacing"><number>4</number></property>
-          <property name="leftMargin"><number>4</number></property>
-          <property name="topMargin"><number>4</number></property>
-          <property name="rightMargin"><number>4</number></property>
-          <property name="bottomMargin"><number>4</number></property>
-          <item>
-           <layout class="QHBoxLayout" name="horizontalLayout_4">
-            <item>
-             <widget class="QRadioButton" name="radio_prism">
-              <property name="text"><string>Prisma</string></property>
-              <attribute name="buttonGroup"><string notr="true">buttonGroup</string></attribute>
-             </widget>
-            </item>
-            <item>
-             <widget class="QRadioButton" name="radio_reflex">
-              <property name="text"><string>Reflexfolie</string></property>
-              <attribute name="buttonGroup"><string notr="true">buttonGroup</string></attribute>
-             </widget>
-            </item>
-            <item>
-             <widget class="QRadioButton" name="radio_reflectorless">
-              <property name="text"><string>Refl.los</string></property>
-              <property name="checked"><bool>true</bool></property>
-              <attribute name="buttonGroup"><string notr="true">buttonGroup</string></attribute>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="horizontalLayout_5">
-            <item><widget class="QLabel" name="label_6"><property name="text"><string>Prismenkonstante</string></property></widget></item>
-            <item><widget class="QLineEdit" name="input_prismConstant"><property name="maximumWidth"><number>60</number></property></widget></item>
-           </layout>
-          </item>
-          <item>
-           <widget class="QPushButton" name="btn_setTarget">
-            <property name="enabled"><bool>false</bool></property>
-            <property name="text"><string>✓ Ziel setzen</string></property>
-           </widget>
-          </item>
           <item>
            <widget class="QLabel" name="lbl_target">
             <property name="text"><string>Ziel noch nicht gesetzt</string></property>
-            <property name="wordWrap"><bool>true</bool></property>
-            <property name="styleSheet"><string notr="true">color:#666;font-style:italic;</string></property>
+            <property name="wordWrap"><bool>false</bool></property>
+            <property name="styleSheet"><string notr="true">color:#666;font-style:italic;font-size:10px;</string></property>
+           </widget>
+          </item>
+          <item>
+           <spacer>
+            <property name="orientation"><enum>Qt::Horizontal</enum></property>
+            <property name="sizeHint" stdset="0"><size><width>10</width><height>0</height></size></property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_open_zielpunkt">
+            <property name="text"><string>&#x1F3AF; Ziel &#x2026;</string></property>
+            <property name="toolTip"><string>Zielpunktdialog &#xF6;ffnen: Zieltyp, Zielh&#xF6;he, Prismenkonstante</string></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_open_fernsteuerung">
+            <property name="text"><string>&#x1F579; Fernsteuerung &#x2026;</string></property>
+            <property name="toolTip"><string>Fernsteuerungsdialog &#xF6;ffnen: Tachymeter drehen</string></property>
            </widget>
           </item>
          </layout>
-        </widget>
-       </item>
-      </layout>
+        </item>
+
+       </layout>
+      </widget>
+
      </widget>
     </item>
-
-    <item>
-     <widget class="QFrame" name="sep3">
-      <property name="frameShape"><enum>QFrame::VLine</enum></property>
-      <property name="frameShadow"><enum>QFrame::Sunken</enum></property>
-     </widget>
-    </item>
-
-    <!-- PANEL 4: Messung & Steuerung -->
-    <item>
-     <widget class="QGroupBox" name="groupBox_6">
-      <property name="title"><string>Messung &amp; Steuerung</string></property>
-      <layout class="QHBoxLayout" name="hl_measure_main">
-       <property name="spacing"><number>6</number></property>
-
-       <item>
-        <layout class="QVBoxLayout" name="vl_measure_left">
-         <property name="spacing"><number>5</number></property>
-
-         <item>
-          <widget class="QGroupBox" name="groupBox_5">
-           <property name="title"><string>Liveansicht</string></property>
-           <layout class="QVBoxLayout" name="vl_live">
-            <property name="spacing"><number>3</number></property>
-            <property name="leftMargin"><number>4</number></property>
-            <property name="topMargin"><number>4</number></property>
-            <property name="rightMargin"><number>4</number></property>
-            <property name="bottomMargin"><number>4</number></property>
-            <item>
-             <layout class="QHBoxLayout" name="horizontalLayout_9">
-              <property name="spacing"><number>6</number></property>
-              <item>
-               <widget class="QLabel" name="lbl_ha">
-                <property name="text"><string>Hz: —</string></property>
-                <property name="alignment"><set>Qt::AlignCenter</set></property>
-                <property name="styleSheet"><string notr="true">font-size:13px;font-weight:bold;padding:3px 6px;background:#263238;color:#80cbc4;border-radius:3px;font-family:monospace;</string></property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QLabel" name="lbl_za">
-                <property name="text"><string>VZ: —</string></property>
-                <property name="alignment"><set>Qt::AlignCenter</set></property>
-                <property name="styleSheet"><string notr="true">font-size:13px;font-weight:bold;padding:3px 6px;background:#263238;color:#80cbc4;border-radius:3px;font-family:monospace;</string></property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QLabel" name="lbl_sd">
-                <property name="text"><string>SD: —</string></property>
-                <property name="alignment"><set>Qt::AlignCenter</set></property>
-                <property name="styleSheet"><string notr="true">font-size:13px;font-weight:bold;padding:3px 6px;background:#263238;color:#ffcc02;border-radius:3px;font-family:monospace;</string></property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-            <item>
-             <layout class="QHBoxLayout" name="horizontalLayout_12">
-              <property name="spacing"><number>6</number></property>
-              <item>
-               <widget class="QLabel" name="lbl_calc_x">
-                <property name="text"><string>X: —</string></property>
-                <property name="alignment"><set>Qt::AlignCenter</set></property>
-                <property name="styleSheet"><string notr="true">padding:2px 5px;background:#e3f2fd;border:1px solid #90caf9;border-radius:3px;font-weight:bold;</string></property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QLabel" name="lbl_calc_y">
-                <property name="text"><string>Y: —</string></property>
-                <property name="alignment"><set>Qt::AlignCenter</set></property>
-                <property name="styleSheet"><string notr="true">padding:2px 5px;background:#e3f2fd;border:1px solid #90caf9;border-radius:3px;font-weight:bold;</string></property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QLabel" name="lbl_calc_z">
-                <property name="text"><string>Z: —</string></property>
-                <property name="alignment"><set>Qt::AlignCenter</set></property>
-                <property name="styleSheet"><string notr="true">padding:2px 5px;background:#e3f2fd;border:1px solid #90caf9;border-radius:3px;font-weight:bold;</string></property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-           </layout>
-          </widget>
-         </item>
-
-         <item>
-          <layout class="QHBoxLayout" name="hl_measure_btns">
-           <property name="spacing"><number>4</number></property>
-           <item>
-            <widget class="QPushButton" name="btn_measure_a">
-             <property name="enabled"><bool>false</bool></property>
-             <property name="text"><string>∠ Winkel</string></property>
-             <property name="toolTip"><string>Winkelmessung auslösen</string></property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="btn_measure">
-             <property name="enabled"><bool>false</bool></property>
-             <property name="text"><string>↔ Strecke</string></property>
-             <property name="toolTip"><string>Streckenmessung auslösen und Punkt speichern</string></property>
-             <property name="styleSheet"><string notr="true">QPushButton:enabled{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e3f2fd,stop:1 #bbdefb);border-color:#64b5f6;font-weight:bold;}</string></property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="btn_measure_stop">
-             <property name="enabled"><bool>false</bool></property>
-             <property name="text"><string>■ Stop</string></property>
-             <property name="toolTip"><string>Messung stoppen</string></property>
-             <property name="styleSheet"><string notr="true">QPushButton:enabled{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #fff3e0,stop:1 #ffe0b2);border-color:#ffb74d;}</string></property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="btn_laser">
-             <property name="enabled"><bool>false</bool></property>
-             <property name="text"><string>Laser einschalten</string></property>
-             <property name="toolTip"><string>Laserpointer ein-/ausschalten</string></property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-
-         <item>
-          <widget class="QGroupBox" name="groupBox_linedist">
-           <property name="title"><string>Linienabstand</string></property>
-           <property name="checkable"><bool>true</bool></property>
-           <property name="checked"><bool>false</bool></property>
-           <layout class="QVBoxLayout" name="vl_linedist">
-            <property name="spacing"><number>3</number></property>
-            <property name="leftMargin"><number>4</number></property>
-            <property name="topMargin"><number>4</number></property>
-            <property name="rightMargin"><number>4</number></property>
-            <property name="bottomMargin"><number>4</number></property>
-            <item>
-             <widget class="QgsMapLayerComboBox" name="combo_line_layer">
-              <property name="toolTip"><string>Linienlayer auswählen, zu dem der Abstand berechnet wird</string></property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="lbl_line_distance">
-              <property name="text"><string>Abstand: —</string></property>
-              <property name="alignment"><set>Qt::AlignCenter</set></property>
-              <property name="styleSheet"><string notr="true">font-size:13px;font-weight:bold;padding:3px 6px;background:#263238;color:#ff9800;border-radius:3px;font-family:monospace;</string></property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-
-         <item>
-          <spacer>
-           <property name="orientation"><enum>Qt::Vertical</enum></property>
-           <property name="sizeHint" stdset="0"><size><width>0</width><height>4</height></size></property>
-          </spacer>
-         </item>
-
-        </layout>
-       </item>
-
-       <item>
-        <widget class="QGroupBox" name="groupBox_7">
-         <property name="title"><string>Fernsteuerung</string></property>
-         <property name="maximumWidth"><number>170</number></property>
-         <layout class="QVBoxLayout" name="vl_remote">
-          <property name="spacing"><number>4</number></property>
-          <item>
-           <layout class="QGridLayout" name="gridLayout_3">
-            <property name="horizontalSpacing"><number>3</number></property>
-            <property name="verticalSpacing"><number>3</number></property>
-            <item row="0" column="1">
-             <widget class="QPushButton" name="btn_control_up">
-              <property name="text"><string>▲</string></property>
-              <property name="minimumSize"><size><width>34</width><height>30</height></size></property>
-              <property name="maximumSize"><size><width>40</width><height>34</height></size></property>
-             </widget>
-            </item>
-            <item row="1" column="0">
-             <widget class="QPushButton" name="btn_control_left">
-              <property name="text"><string>◀</string></property>
-              <property name="minimumSize"><size><width>34</width><height>30</height></size></property>
-              <property name="maximumSize"><size><width>40</width><height>34</height></size></property>
-             </widget>
-            </item>
-            <item row="1" column="2">
-             <widget class="QPushButton" name="btn_control_right">
-              <property name="text"><string>▶</string></property>
-              <property name="minimumSize"><size><width>34</width><height>30</height></size></property>
-              <property name="maximumSize"><size><width>40</width><height>34</height></size></property>
-             </widget>
-            </item>
-            <item row="2" column="1">
-             <widget class="QPushButton" name="btn_control_down">
-              <property name="text"><string>▼</string></property>
-              <property name="minimumSize"><size><width>34</width><height>30</height></size></property>
-              <property name="maximumSize"><size><width>40</width><height>34</height></size></property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QHBoxLayout" name="horizontalLayout_14">
-            <item><widget class="QLabel" name="label_10"><property name="text"><string>Schritt [gon]</string></property></widget></item>
-            <item>
-             <widget class="QLineEdit" name="input_control_step">
-              <property name="text"><string>0.1</string></property>
-              <property name="maximumWidth"><number>55</number></property>
-             </widget>
-            </item>
-           </layout>
-          </item>
-         </layout>
-        </widget>
-       </item>
-
-      </layout>
-     </widget>
-    </item>
-
    </layout>
   </widget>
  </widget>
@@ -568,7 +386,4 @@
  </customwidgets>
  <resources/>
  <connections/>
- <buttongroups>
-  <buttongroup name="buttonGroup"/>
- </buttongroups>
 </ui>

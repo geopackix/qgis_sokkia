@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ZielpunktDialogBase</class>
+ <widget class="QDialog" name="ZielpunktDialogBase">
+  <property name="geometry">
+   <rect><x>0</x><y>0</y><width>300</width><height>260</height></rect>
+  </property>
+  <property name="windowTitle"><string>Zielpunkt konfigurieren</string></property>
+  <property name="styleSheet">
+   <string notr="true">QGroupBox{font-weight:bold;border:1px solid #c0c0c0;border-radius:5px;margin-top:8px;padding-top:4px;}QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;padding:0 4px;color:#333;}QLineEdit{border:1px solid #bbb;border-radius:3px;padding:2px 4px;background:white;}QLineEdit:disabled{background:#f0f0f0;color:#888;}QPushButton{border:1px solid #aaa;border-radius:3px;padding:3px 8px;background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #f8f8f8,stop:1 #e0e0e0);min-height:22px;}QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8f0fe,stop:1 #c8d8f8);border-color:#6699cc;}QPushButton:pressed{background:#c0c8d8;}QPushButton:disabled{color:#aaa;background:#f0f0f0;border-color:#d0d0d0;}</string>
+  </property>
+  <layout class="QVBoxLayout" name="vl_main">
+   <property name="spacing"><number>6</number></property>
+   <property name="leftMargin"><number>8</number></property>
+   <property name="topMargin"><number>8</number></property>
+   <property name="rightMargin"><number>8</number></property>
+   <property name="bottomMargin"><number>8</number></property>
+
+   <!-- Punkt-Nr und Zielh&#xF6;he -->
+   <item>
+    <layout class="QFormLayout" name="form_target">
+     <property name="horizontalSpacing"><number>6</number></property>
+     <property name="verticalSpacing"><number>4</number></property>
+     <item row="0" column="0"><widget class="QLabel" name="label_7"><property name="text"><string>Punkt-Nr.</string></property></widget></item>
+     <item row="0" column="1"><widget class="QLineEdit" name="input_targetid"><property name="text"><string>P.0</string></property></widget></item>
+     <item row="1" column="0"><widget class="QLabel" name="label_5"><property name="text"><string>Zielh&#xF6;he [m]</string></property></widget></item>
+     <item row="1" column="1"><widget class="QLineEdit" name="input_th"><property name="text"><string>0</string></property></widget></item>
+    </layout>
+   </item>
+
+   <item>
+    <widget class="QCheckBox" name="cb_autoincerement">
+     <property name="text"><string>Autoinkrement Punkt-Nr.</string></property>
+     <property name="checked"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="cb_auto_save">
+     <property name="text"><string>Punkte automatisch speichern</string></property>
+     <property name="checked"><bool>true</bool></property>
+     <property name="toolTip"><string>Aktiviert: Punkte werden sofort gespeichert. Deaktiviert: Abfrage mit Punktnummer vor jedem Speichern.</string></property>
+    </widget>
+   </item>
+   <!-- Zieltyp & Prismenkonstante -->
+   <item>
+    <widget class="QGroupBox" name="groupBox_4">
+     <property name="title"><string>Zieltyp &amp; Prismenkonstante</string></property>
+     <layout class="QVBoxLayout" name="vl_targettype">
+      <property name="spacing"><number>4</number></property>
+      <property name="leftMargin"><number>4</number></property>
+      <property name="topMargin"><number>4</number></property>
+      <property name="rightMargin"><number>4</number></property>
+      <property name="bottomMargin"><number>4</number></property>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_4">
+        <item>
+         <widget class="QRadioButton" name="radio_prism">
+          <property name="text"><string>Prisma</string></property>
+          <attribute name="buttonGroup"><string notr="true">buttonGroup</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radio_reflex">
+          <property name="text"><string>Reflexfolie</string></property>
+          <attribute name="buttonGroup"><string notr="true">buttonGroup</string></attribute>
+         </widget>
+        </item>
+        <item>
+         <widget class="QRadioButton" name="radio_reflectorless">
+          <property name="text"><string>Refl.los</string></property>
+          <property name="checked"><bool>true</bool></property>
+          <attribute name="buttonGroup"><string notr="true">buttonGroup</string></attribute>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_5">
+        <item><widget class="QLabel" name="label_6"><property name="text"><string>Prismenkonstante</string></property></widget></item>
+        <item><widget class="QLineEdit" name="input_prismConstant"><property name="maximumWidth"><number>70</number></property></widget></item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- Statusanzeige -->
+   <item>
+    <widget class="QLabel" name="lbl_target_dialog">
+     <property name="text"><string>Ziel noch nicht gesetzt</string></property>
+     <property name="wordWrap"><bool>true</bool></property>
+     <property name="styleSheet"><string notr="true">color:#666;font-style:italic;padding:2px 0;</string></property>
+    </widget>
+   </item>
+
+   <!-- Schaltfl&#xE4;chen -->
+   <item>
+    <layout class="QHBoxLayout">
+     <item>
+      <spacer>
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>10</width><height>0</height></size></property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_setTarget">
+       <property name="enabled"><bool>false</bool></property>
+       <property name="text"><string>&#x2713; Ziel setzen</string></property>
+       <property name="styleSheet"><string notr="true">QPushButton:enabled{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e3f2fd,stop:1 #bbdefb);border-color:#64b5f6;font-weight:bold;}</string></property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+ <buttongroups>
+  <buttongroup name="buttonGroup"/>
+ </buttongroups>
+</ui>

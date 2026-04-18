@@ -20,13 +20,13 @@
  ***************************************************************************/
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant, QDateTime, QTimer
-from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtGui import QIcon, QColor
 import os
 
 from datetime import datetime
 from qgis.gui import QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint, QgsMapLayerComboBox
-from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsMapLayerProxyModel
-from qgis.PyQt.QtWidgets import QAction
+from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsMapLayerProxyModel, QgsCoordinateReferenceSystem, QgsCoordinateTransform
+from qgis.PyQt.QtWidgets import QAction, QInputDialog, QDialog, QVBoxLayout, QFormLayout, QLabel, QLineEdit, QDialogButtonBox
 import serial
 import serial.tools.list_ports
 import threading
@@ -37,6 +37,9 @@ import queue
 from .q_sokkia_orientation_arrow import OrientationArrow
 from .resection.resection_dialog import ResectionDialog
 from .transfer_dialog import TransferDialog
+from .standort_dialog import StandortDialog
+from .zielpunkt_dialog import ZielpunktDialog
+from .fernsteuerung_dialog import FernsteuerungDialog
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -56,6 +59,58 @@ def remove_all_rubber_bands(canvas):
     # Aktualisiere die Karte
     canvas.refresh()
 
+
+
+class SavePointDialog(QDialog):
+    """Kleiner Dialog vor dem Speichern: Punktnummer + Zielhöhe editierbar, Koordinaten sichtbar."""
+
+    def __init__(self, point_id, x, y, z, th, sd, za, sp_h, sp_ih, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Punkt speichern")
+        self._sd = sd
+        self._za = za
+        self._sp_h = sp_h
+        self._sp_ih = sp_ih
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self._input_id = QLineEdit(str(point_id))
+        form.addRow("Punktnummer:", self._input_id)
+
+        self._input_th = QLineEdit(f"{th:.4f}")
+        self._input_th.textChanged.connect(self._recalc_z)
+        form.addRow("Zielh\xf6he [m]:", self._input_th)
+
+        self._lbl_x = QLabel(f"{x:.4f}")
+        self._lbl_y = QLabel(f"{y:.4f}")
+        self._lbl_z = QLabel(f"{z:.4f}")
+        for lbl in (self._lbl_x, self._lbl_y, self._lbl_z):
+            lbl.setStyleSheet("font-weight:bold;")
+        form.addRow("X (Rechts):", self._lbl_x)
+        form.addRow("Y (Hoch):", self._lbl_y)
+        form.addRow("Z (H\xf6he):", self._lbl_z)
+
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Discard)
+        buttons.accepted.connect(self.accept)
+        discard_btn = buttons.button(QDialogButtonBox.Discard)
+        discard_btn.setText("Verwerfen")
+        discard_btn.clicked.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _recalc_z(self, text):
+        try:
+            th = float(text)
+            z = self._sp_h + self._sp_ih + self._sd * math.cos(self._za * math.pi / 200) - th
+            self._lbl_z.setText(f"{z:.4f}")
+        except ValueError:
+            pass
+
+    def get_values(self):
+        """Gibt (point_id, th) zurück."""
+        return self._input_id.text(), float(self._input_th.text())
 
 
 class QGISSokkia:
@@ -102,6 +157,9 @@ class QGISSokkia:
 
         self.pluginIsActive = False
         self.dockwidget = None
+        self._standort_dlg = None
+        self._zielpunkt_dlg = None
+        self._fernsteuerung_dlg = None
         
         self.serial = None
         
@@ -121,6 +179,7 @@ class QGISSokkia:
         self.crsName = "EPSG:25832"
         self.orientation = 0
         self.orientationArrow = OrientationArrow(self.crsName)
+        self._direction_rubber_band = None  # Live-Richtungslinie auf der Karte
         
         
         #remove_all_rubber_bands(self.canvas)
@@ -240,16 +299,17 @@ class QGISSokkia:
     def onClosePlugin(self):
         """Cleanup necessary items here when plugin dockwidget is closed"""
 
-        #print "** CLOSING QGISSokkia"
-
         # disconnects
         self.dockwidget.closingPlugin.disconnect(self.onClosePlugin)
 
-        # remove this statement if dockwidget is to remain
-        # for reuse if plugin is reopened
-        # Commented next statement since it causes QGIS crashe
-        # when closing the docked window:
-        # self.dockwidget = None
+        # Serielle Schnittstelle zwingend freigeben
+        self._close_serial()
+        self._clear_direction_rubber_band()
+
+        # Detaildialoge verstecken (nicht zerstören)
+        for dlg in (self._standort_dlg, self._zielpunkt_dlg, self._fernsteuerung_dlg):
+            if dlg is not None:
+                dlg.hide()
 
         self.pluginIsActive = False
 
@@ -257,7 +317,8 @@ class QGISSokkia:
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
 
-        #print "** UNLOAD QGISSokkia"
+        # Serielle Schnittstelle freigeben falls noch offen
+        self._close_serial()
 
         for action in self.actions:
             self.iface.removePluginMenu(
@@ -284,6 +345,91 @@ class QGISSokkia:
         idx = combo.findText(restore)
         if idx >= 0:
             combo.setCurrentIndex(idx)
+
+    # ------------------------------------------------------------------ #
+    # Zustands-Helper: setzt Enable + Tooltip für alle gesteuerten Btns #
+    # ------------------------------------------------------------------ #
+    _TT_NEED_CONNECT   = "Bitte zuerst verbinden (\u25b6 Verbinden) oder \u26a1 Initialisieren"
+    _TT_NEED_CONNECT_M = "Bitte zuerst mit dem Tachymeter verbinden (\u25b6 Verbinden)"
+    _TT_NEED_SP        = "Bitte zuerst einen Standpunkt setzen (\U0001f4cd Standort \u2026)"
+
+    def _apply_connection_state(self, connected: bool, initialized: bool):
+        """Setzt Enable-Status und erkl\u00e4rende Tooltips f\u00fcr alle abh\u00e4ngigen Buttons."""
+        dw  = self.dockwidget
+        sdlg = self._standort_dlg
+        zdlg = self._zielpunkt_dlg
+
+        # --- Verbinden / Trennen ---
+        dw.btn_connect.setEnabled(not connected)
+        dw.btn_connect.setToolTip(
+            "Bereits verbunden" if connected
+            else "Serielle Verbindung zum Tachymeter herstellen")
+        dw.btn_disconnect.setEnabled(connected)
+        dw.btn_disconnect.setToolTip(
+            "Verbindung zum Tachymeter trennen" if connected
+            else "Kein aktiver Tachymeter verbunden")
+
+        # --- Messtasten (nur mit Ger\u00e4t) ---
+        for btn, label in [
+            (dw.btn_laser,        "Laserpointer ein-/ausschalten"),
+            (dw.btn_measure,      "Streckenmessung ausl\u00f6sen und Punkt speichern"),
+            (dw.btn_measure_a,    "Winkelmessung ausl\u00f6sen"),
+            (dw.btn_measure_stop, "Messung stoppen"),
+        ]:
+            btn.setEnabled(connected)
+            btn.setToolTip(label if connected else self._TT_NEED_CONNECT_M)
+
+        # --- Ziel setzen (nur mit Ger\u00e4t) ---
+        zdlg.btn_setTarget.setEnabled(connected)
+        zdlg.btn_setTarget.setToolTip(
+            "Zieltyp und Prismenkonstante an den Tachymeter senden" if connected
+            else self._TT_NEED_CONNECT_M)
+
+        # --- Standpunkt setzen (mit Ger\u00e4t ODER nach Initialisieren) ---
+        sp_ok = connected or initialized
+        sdlg.btn_setSp_confirm.setEnabled(sp_ok)
+        sdlg.btn_setSp_confirm.setToolTip(
+            "Standpunkt mit eingegebenen Werten setzen und Orientierung berechnen" if sp_ok
+            else self._TT_NEED_CONNECT)
+
+    def _query_device_info(self) -> str:
+        """Liest Geräteinformationen vom Sokkia SET RS232.
+        1. Liest ein evtl. vorhandenes Begrüßungs-Telegramm (Greeting)
+        2. Fragt Firmware-Version mit *R8 ab
+        Gibt einen formatierten Info-String zurück."""
+        try:
+            result_parts = []
+            self.serial.timeout = 1
+
+            # 1. Greeting lesen (manche Geräte senden beim Verbinden spontan Daten)
+            self.serial.reset_input_buffer()
+            time.sleep(0.3)
+            waiting = self.serial.in_waiting
+            if waiting > 0:
+                greeting = self.serial.read(waiting).decode('utf-8', errors='replace').strip()
+                if greeting:
+                    result_parts.append(greeting)
+
+            # 2. Firmware-Version abfragen (*R8)
+            self.serial.reset_input_buffer()
+            self.serial.write(b'*R8\r\n')
+            time.sleep(0.5)
+            lines = []
+            for _ in range(4):
+                line = self.serial.readline()
+                if not line:
+                    break
+                decoded = line.decode('utf-8', errors='replace').strip()
+                if decoded and decoded != '\x15':
+                    lines.append(decoded)
+            if lines:
+                result_parts.append('  '.join(lines))
+
+            self.serial.timeout = 1
+            return '  |  '.join(result_parts) if result_parts else ''
+        except Exception as e:
+            print(f"[Geräteinfo] {e}")
+            return ''
 
     def connectToSerial(self):
     
@@ -315,6 +461,10 @@ class QGISSokkia:
             
             if self.serial.is_open:
                 print("Connection established successfully!")
+
+                # Geräteinfo anfragen (SDR33: ?I = Instrument Info)
+                device_info = self._query_device_info()
+
                 self.serialthread = threading.Thread(target=self.readSerial)
                 self.serialthread.daemon = True  # makes the thread a daemon thread
                 self.serialthread.start() 
@@ -329,22 +479,18 @@ class QGISSokkia:
                 self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
                 self.addApTempLayer(f"APs-{datetime.now().strftime('%d%m%y-%H%M')}")
                 
-                self.dockwidget.btn_connect.setEnabled(False)
-                self.dockwidget.btn_disconnect.setEnabled(True)
-                self.dockwidget.btn_laser.setEnabled(True)      #enable laser button
-                self.dockwidget.btn_measure.setEnabled(True)
-                self.dockwidget.btn_measure_a.setEnabled(True)
-                self.dockwidget.btn_measure_stop.setEnabled(True)
-                self.dockwidget.btn_setTarget.setEnabled(True)
-                self.dockwidget.btn_setSp.setEnabled(True)
-            
+                self._apply_connection_state(connected=True, initialized=True)
             
                 # Layer zur Karte hinzufügen
                 QgsProject.instance().addMapLayer(self.mlayer)
                 QgsProject.instance().addMapLayer(self.splayer)
                 QgsProject.instance().addMapLayer(self.aplayer)
-                self.iface.messageBar().pushSuccess(
-                    "Verbindung", f"Verbunden mit {port} ({baudrate} Baud)  |  CRS: {self.crsName}")
+                info_text = f"Verbunden mit {port} ({baudrate} Baud)  |  CRS: {self.crsName}"
+                if device_info:
+                    info_text += f"  |  {device_info}"
+                self.iface.messageBar().pushSuccess("Verbindung", info_text)
+                self.dockwidget.lbl_device_info.setText(
+                    device_info if device_info else f"{port} · {baudrate} Baud")
             else:
                 raise serial.SerialException('Port konnte nicht geöffnet werden.')
 
@@ -431,24 +577,25 @@ class QGISSokkia:
         QgsProject.instance().addMapLayer(self.splayer)
         QgsProject.instance().addMapLayer(self.aplayer)
 
-        self.dockwidget.btn_setSp.setEnabled(True)
+        self._apply_connection_state(connected=False, initialized=True)
 
         self.iface.messageBar().pushSuccess(
             "Initialisiert", f"Layer angelegt (offline)  |  CRS: {self.crsName}")
 
-    def disconnectFromSerial(self):
+    def _close_serial(self):
+        """Gibt die serielle Schnittstelle sicher frei (Thread-sicher, idempotent)."""
         self.serialStopEvent.set()
         if self.serial and self.serial.is_open:
-            self.serial.close()
+            try:
+                self.serial.close()
+            except Exception:
+                pass
+
+    def disconnectFromSerial(self):
+        self._close_serial()
+        self._clear_direction_rubber_band()
         #Enable/disable buttons
-        self.dockwidget.btn_connect.setEnabled(True)
-        self.dockwidget.btn_disconnect.setEnabled(False)
-        self.dockwidget.btn_laser.setEnabled(False)      #enable laser button
-        self.dockwidget.btn_measure.setEnabled(False)
-        self.dockwidget.btn_measure_a.setEnabled(False)
-        self.dockwidget.btn_measure_stop.setEnabled(False)
-        self.dockwidget.btn_setTarget.setEnabled(False)
-        self.dockwidget.btn_setSp.setEnabled(False)
+        self._apply_connection_state(connected=False, initialized=False)
         self.iface.messageBar().pushInfo("Verbindung", "Getrennt.")
 
     def readSerial(self):
@@ -502,10 +649,61 @@ class QGISSokkia:
                     self.dockwidget.lbl_ha.setText(f"HZ: {self.measureValues['ha']:.4f} gon")
                     self.dockwidget.lbl_za.setText(f"VZ: {self.measureValues['za']:.4f} gon")
                     self.dockwidget.lbl_sd.setText(f"SD: {self.measureValues['sd']:.4f} m")
+                self._update_direction_rubber_band(ha)
         except Exception as e:
             print(f"[Queue] {e}")
 
-    def addMPoint(self, sd,za,ha):
+    def _update_direction_rubber_band(self, ha_raw: float):
+        """Zeichnet eine 100m-Linie in Richtung des aktuellen Hz-Werts vom Standpunkt aus."""
+        try:
+            if not self.canvas:
+                print("[RubberBand] kein canvas")
+                return
+            sp_x = self.sp.get('RECHTS', 0)
+            sp_y = self.sp.get('HOCH', 0)
+            # Hz-Rohwert + Orientierung -> Nordrichtung in Gon
+            ha_oriented = ha_raw + self.orientation * 200.0 / math.pi
+            ha_rad = ha_oriented * math.pi / 200.0
+            length = 100.0
+            end_x = sp_x + length * math.sin(ha_rad)
+            end_y = sp_y + length * math.cos(ha_rad)
+
+            # Koordinaten in Projekt-CRS transformieren
+            try:
+                src_crs = QgsCoordinateReferenceSystem(self.crsName)
+                dst_crs = QgsProject.instance().crs()
+                if src_crs.isValid() and dst_crs.isValid() and src_crs != dst_crs:
+                    transform = QgsCoordinateTransform(src_crs, dst_crs, QgsProject.instance())
+                    p1 = transform.transform(QgsPointXY(sp_x, sp_y))
+                    p2 = transform.transform(QgsPointXY(end_x, end_y))
+                else:
+                    p1 = QgsPointXY(sp_x, sp_y)
+                    p2 = QgsPointXY(end_x, end_y)
+            except Exception as te:
+                print(f"[RubberBand] Transform-Fehler: {te}")
+                p1 = QgsPointXY(sp_x, sp_y)
+                p2 = QgsPointXY(end_x, end_y)
+
+            if self._direction_rubber_band is None:
+                self._direction_rubber_band = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
+                self._direction_rubber_band.setColor(QColor(255, 80, 0, 220))
+                self._direction_rubber_band.setWidth(3)
+                self._direction_rubber_band.setZValue(100)
+
+            self._direction_rubber_band.reset(QgsWkbTypes.LineGeometry)
+            self._direction_rubber_band.addPoint(p1, False)
+            self._direction_rubber_band.addPoint(p2, True)
+            print(f"[RubberBand] {p1.x():.2f},{p1.y():.2f} -> {p2.x():.2f},{p2.y():.2f}")
+        except Exception as e:
+            print(f"[RubberBand] Fehler: {e}")
+
+    def _clear_direction_rubber_band(self):
+        """Entfernt die Richtungslinie von der Karte."""
+        if self._direction_rubber_band is not None:
+            self._direction_rubber_band.reset(QgsWkbTypes.LineGeometry)
+            self._direction_rubber_band = None
+
+    def addMPoint(self, sd, za, ha):
 
         def increment_last_segment(s):
             import re
@@ -534,7 +732,7 @@ class QGISSokkia:
             ha = ha + self.orientation*200 / math.pi
             print(f"{ha *200 / math.pi}")
             
-            th = float(self.dockwidget.input_th.text())
+            th = float(self._zielpunkt_dlg.input_th.text())
             
             z = self.sp['H'] + self.sp['ih'] + sd * math.cos(za*math.pi/200) - th 
             
@@ -551,11 +749,8 @@ class QGISSokkia:
             #feature.setAttributes([1]) # ID auf 1 setzen
 
             #get properties from UI
-            
-            prism_constant = float(self.dockwidget.input_prismConstant.text())
-            targetid = self.dockwidget.input_targetid.text()
-            
-            feature.setAttributes([targetid,self.sp['ID'],QDateTime.currentDateTime(),self.sp['ih'],th,sd,za,ha,hd, x, y, z, prism_constant])
+            prism_constant = float(self._zielpunkt_dlg.input_prismConstant.text())
+            targetid = self._zielpunkt_dlg.input_targetid.text()
 
             #add values to ui
             self.dockwidget.lbl_calc_x.setText('X:' + str(f"{x:.4f}"))
@@ -564,17 +759,37 @@ class QGISSokkia:
 
             self._calc_line_distance(x, y)
 
-            #increment target id
-            newid = increment_last_segment(targetid)
-            self.dockwidget.input_targetid.setText(newid)
+            # Speichern: automatisch oder mit Abfrage
+            auto_save = self._zielpunkt_dlg.cb_auto_save.isChecked()
+            if auto_save:
+                save_id = targetid
+                do_save = True
+            else:
+                dlg = SavePointDialog(
+                    targetid, x, y, z, th,
+                    sd, za, self.sp['H'], self.sp['ih'],
+                    parent=self.iface.mainWindow()
+                )
+                if dlg.exec_() == QDialog.Accepted:
+                    save_id, th = dlg.get_values()
+                    # Z neu berechnen falls Zielhöhe geändert
+                    z = self.sp['H'] + self.sp['ih'] + sd * math.cos(za * math.pi / 200) - th
+                    do_save = save_id.strip() != ''
+                else:
+                    do_save = False
 
+            if do_save:
+                feature.setAttributes([save_id, self.sp['ID'], QDateTime.currentDateTime(),
+                                        self.sp['ih'], th, sd, za, ha, hd, x, y, z, prism_constant])
+                self.mlayer.dataProvider().addFeature(feature)
+                print('Punkt gespeichert:', save_id)
+                self.mlayer.updateExtents()
+                self.mlayer.triggerRepaint()
 
-
-            self.mlayer.dataProvider().addFeature(feature)
-            print('Punkt gespeichert')
-            
-            self.mlayer.updateExtents()
-            self.mlayer.triggerRepaint() #re-draw layer
+                # Autoinkrement nur wenn Punkt wirklich gespeichert
+                if self._zielpunkt_dlg.cb_autoincerement.isChecked():
+                    newid = increment_last_segment(save_id)
+                    self._zielpunkt_dlg.input_targetid.setText(newid)
         except Exception as e:
             print(e)
     
@@ -612,23 +827,88 @@ class QGISSokkia:
         self.aplayer.updateExtents()
         self.aplayer.triggerRepaint() #re-draw layer
     
+    def _connect_line_layer_signals(self, layer):
+        """Verbindet selectionChanged des aktuellen Linienlayers zur Live-Anzeige."""
+        # Vorherigen Layer trennen
+        if hasattr(self, '_line_layer_connected') and self._line_layer_connected is not None:
+            try:
+                self._line_layer_connected.selectionChanged.disconnect(self._update_line_selection_label)
+            except Exception:
+                pass
+        self._line_layer_connected = layer
+        if layer is not None:
+            layer.selectionChanged.connect(self._update_line_selection_label)
+        self._update_line_selection_label()
+
+    def _update_line_selection_label(self, *args):
+        """Aktualisiert das Status-Label für die Linienauswahl."""
+        if not self.dockwidget:
+            return
+        layer = self.dockwidget.combo_line_layer.currentLayer()
+        if layer is None:
+            self.dockwidget.lbl_line_selection.setText("Kein Layer gewählt")
+            return
+        count = layer.selectedFeatureCount()
+        if count > 0:
+            names = []
+            for f in layer.selectedFeatures():
+                val = f.attribute(layer.displayField()) if layer.displayField() else None
+                names.append(str(val) if val else f"ID {f.id()}")
+            label = f"Selektiert ({count}): " + ", ".join(names[:3])
+            if count > 3:
+                label += " …"
+            self.dockwidget.lbl_line_selection.setText(label)
+            self.dockwidget.lbl_line_selection.setStyleSheet(
+                "color:#1b5e20;font-style:normal;font-size:9px;font-weight:bold;")
+        else:
+            self.dockwidget.lbl_line_selection.setText(
+                "Kein Objekt ausgewählt \u2013 nächste Linie wird verwendet")
+            self.dockwidget.lbl_line_selection.setStyleSheet(
+                "color:#999;font-style:italic;font-size:9px;")
+
     def _calc_line_distance(self, x, y):
-        """Berechnet den Abstand vom Punkt (x, y) zur nächsten Linie des ausgewählten Layers."""
+        """Berechnet den orthogonalen Abstand vom Punkt (x,y) zum nächsten Liniensegment.
+        Ist im Layer ein Objekt selektiert, wird nur dieses verwendet; sonst alle Objekte."""
         if not self.dockwidget or not self.dockwidget.groupBox_linedist.isChecked():
             return
         layer = self.dockwidget.combo_line_layer.currentLayer()
         if layer is None:
             self.dockwidget.lbl_line_distance.setText("Abstand: kein Layer")
             return
-        point_geom = QgsGeometry.fromPointXY(QgsPointXY(x, y))
+
+        selected = layer.selectedFeatures()
+        features = selected if selected else list(layer.getFeatures())
+
+        def segments_from_geom(geom):
+            """Liefert alle (ax,ay,bx,by)-Segmente aus einer Liniengeometrie."""
+            segs = []
+            wkb_type = geom.wkbType()
+            if QgsWkbTypes.isMultiType(wkb_type):
+                lines = geom.asMultiPolyline()
+            else:
+                lines = [geom.asPolyline()]
+            for line in lines:
+                for i in range(len(line) - 1):
+                    segs.append((line[i].x(), line[i].y(), line[i+1].x(), line[i+1].y()))
+            return segs
+
+        px, py = x, y
         min_dist = None
-        for feat in layer.getFeatures():
+        for feat in features:
             geom = feat.geometry()
             if geom.isNull() or geom.isEmpty():
                 continue
-            dist = point_geom.distance(geom)
-            if min_dist is None or dist < min_dist:
-                min_dist = dist
+            for ax, ay, bx, by in segments_from_geom(geom):
+                dx, dy = bx - ax, by - ay
+                seg_len_sq = dx*dx + dy*dy
+                if seg_len_sq == 0:
+                    d = math.hypot(px - ax, py - ay)
+                else:
+                    t = max(0.0, min(1.0, ((px - ax)*dx + (py - ay)*dy) / seg_len_sq))
+                    d = math.hypot(px - ax - t*dx, py - ay - t*dy)
+                if min_dist is None or d < min_dist:
+                    min_dist = d
+
         if min_dist is not None:
             self.dockwidget.lbl_line_distance.setText(f"Abstand: {min_dist:.3f} m")
         else:
@@ -636,11 +916,11 @@ class QGISSokkia:
 
     def calc_orientation(self):
         try:
-            ap_x = float(self.dockwidget.input_ap_x.text())
-            ap_y = float(self.dockwidget.input_ap_y.text())
-            ap_name = self.dockwidget.input_ap.text().strip()
-            sp_x = float(self.dockwidget.input_sp_x.text())
-            sp_y = float(self.dockwidget.input_sp_y.text())
+            ap_x = float(self._standort_dlg.input_ap_x.text())
+            ap_y = float(self._standort_dlg.input_ap_y.text())
+            ap_name = self._standort_dlg.input_ap.text().strip()
+            sp_x = float(self._standort_dlg.input_sp_x.text())
+            sp_y = float(self._standort_dlg.input_sp_y.text())
         except ValueError as e:
             self.iface.messageBar().pushWarning("Orientierung", f"Ungültige Koordinate: {e}")
             return
@@ -654,7 +934,7 @@ class QGISSokkia:
         o = math.atan2(ap_x - sp_x, ap_y - sp_y)
         self.orientation = o
         z0_gon = o * 200.0 / math.pi
-        self.dockwidget.input_orientation.setText(f"{z0_gon:.4f} gon")
+        self._standort_dlg.input_orientation.setText(f"{z0_gon:.4f} gon")
         self.ap = {"ID": ap_name, "RECHTS": ap_x, "HOCH": ap_y}
         self.addAp()
         self.orientationArrow.addFeature(sp_x, sp_y, ap_x, ap_y)
@@ -701,11 +981,13 @@ class QGISSokkia:
     def selectCoordinatesFromMap(self):
         """Aktiviert ein Kartenwerkzeug zum Aufnehmen des Standpunkts per Mausklick."""
         def capture_coordinate(point, button):
-            self.dockwidget.input_sp_x.setText(f"{point.x():.4f}")
-            self.dockwidget.input_sp_y.setText(f"{point.y():.4f}")
+            self._standort_dlg.input_sp_x.setText(f"{point.x():.4f}")
+            self._standort_dlg.input_sp_y.setText(f"{point.y():.4f}")
             self.dockwidget.lbl_x.setText(f"RECHTS: {point.x():.4f}")
             self.dockwidget.lbl_y.setText(f"HOCH: {point.y():.4f}")
             self.canvas.unsetMapTool(self._sp_map_tool)
+            self._standort_dlg.show()
+            self._standort_dlg.raise_()
             self.iface.messageBar().pushInfo(
                 "Standpunkt", f"Koordinaten übernommen: X={point.x():.4f}  Y={point.y():.4f}")
 
@@ -713,6 +995,22 @@ class QGISSokkia:
         self._sp_map_tool.canvasClicked.connect(capture_coordinate)
         self.canvas.setMapTool(self._sp_map_tool)
         self.iface.messageBar().pushInfo("Standpunkt", "Klicken Sie in die Karte, um Koordinaten zu übernehmen.")
+
+    def selectApFromMap(self):
+        """Aktiviert ein Kartenwerkzeug zum Aufnehmen der Anschlussrichtung per Mausklick."""
+        def capture_ap(point, button):
+            self._standort_dlg.input_ap_x.setText(f"{point.x():.4f}")
+            self._standort_dlg.input_ap_y.setText(f"{point.y():.4f}")
+            self.canvas.unsetMapTool(self._ap_map_tool)
+            self._standort_dlg.show()
+            self._standort_dlg.raise_()
+            self.iface.messageBar().pushInfo(
+                "Anschlussrichtung", f"Koordinaten übernommen: X={point.x():.4f}  Y={point.y():.4f}")
+
+        self._ap_map_tool = QgsMapToolEmitPoint(self.canvas)
+        self._ap_map_tool.canvasClicked.connect(capture_ap)
+        self.canvas.setMapTool(self._ap_map_tool)
+        self.iface.messageBar().pushInfo("Anschlussrichtung", "Klicken Sie in die Karte, um den Anschlusspunkt zu übernehmen.")
    
     def switchLaser(self):
         
@@ -739,22 +1037,22 @@ class QGISSokkia:
         
     def selectTarget(self):
         
-        vprism = self.dockwidget.radio_prism
-        vreflex = self.dockwidget.radio_reflex
-        vreflectorless = self.dockwidget.radio_reflectorless
+        vprism = self._zielpunkt_dlg.radio_prism
+        vreflex = self._zielpunkt_dlg.radio_reflex
+        vreflectorless = self._zielpunkt_dlg.radio_reflectorless
         
         if vprism.isChecked():
             self.target = 0
             self.targetPrismConstant = -35   #sokkia default
-            self.dockwidget.input_prismConstant.setText(str(self.targetPrismConstant))
+            self._zielpunkt_dlg.input_prismConstant.setText(str(self.targetPrismConstant))
         elif vreflex.isChecked():
             self.target =1 
             self.targetPrismConstant = 0
-            self.dockwidget.input_prismConstant.setText(str(self.targetPrismConstant))
+            self._zielpunkt_dlg.input_prismConstant.setText(str(self.targetPrismConstant))
         elif vreflectorless.isChecked():
             self.target = 2
             self.targetPrismConstant = 0
-            self.dockwidget.input_prismConstant.setText(str(self.targetPrismConstant))
+            self._zielpunkt_dlg.input_prismConstant.setText(str(self.targetPrismConstant))
         else:
             self.target = 2    
             
@@ -779,7 +1077,7 @@ class QGISSokkia:
             targetType = 'Reflektorlos'
             
             
-        self.targetPrismConstant = int(self.dockwidget.input_prismConstant.text())
+        self.targetPrismConstant = int(self._zielpunkt_dlg.input_prismConstant.text())
             
         pc1 = b'/B 0,0,0,'
         pc2 = b',1,0,0,0,0,0,0,0\r\n'
@@ -790,7 +1088,10 @@ class QGISSokkia:
         self.serial.write(command)  
         self.serial.write(command2) 
         
-        self.dockwidget.lbl_target.setText(f"Zieltyp: {targetType}  |  th: {float(self.dockwidget.input_th.text()):.3f} m  |  Prismenkonstante: {self.targetPrismConstant}")
+        status_text = f"Zieltyp: {targetType}  |  th: {float(self._zielpunkt_dlg.input_th.text()):.3f} m  |  PK: {self.targetPrismConstant}"
+        self.dockwidget.lbl_target.setText(status_text)
+        self._zielpunkt_dlg.lbl_target_dialog.setText(status_text)
+        self._zielpunkt_dlg.hide()
         
         
         
@@ -812,27 +1113,49 @@ class QGISSokkia:
         
     def setSp(self):
         try:
-            sp_id = self.dockwidget.input_standpoint.text().strip() or "SP"
-            x = float(self.dockwidget.input_sp_x.text())
-            y = float(self.dockwidget.input_sp_y.text())
-            z = float(self.dockwidget.input_sp_z.text())
-            ih = float(self.dockwidget.input_ih.text())
+            sp_id = self._standort_dlg.input_standpoint.text().strip() or "SP"
+            x = float(self._standort_dlg.input_sp_x.text())
+            y = float(self._standort_dlg.input_sp_y.text())
+            z = float(self._standort_dlg.input_sp_z.text())
+            ih = float(self._standort_dlg.input_ih.text())
         except ValueError as e:
             self.iface.messageBar().pushWarning("Standpunkt", f"Ungültige Eingabe: {e}")
             return
 
         self.sp = {"ID": sp_id, "RECHTS": x, "HOCH": y, "H": z, "ih": ih}
-        if self.dockwidget.groupBox_8.isChecked():
+        if self._standort_dlg.groupBox_8.isChecked():
             try:
                 self.calc_orientation()
             except Exception as e:
                 print(f"[Orientierung] {e}")
         self.addStation()
-        self.dockwidget.lbl_sp.setText(
-            f"ID: {sp_id}  |  X: {x:.4f}  Y: {y:.4f}  H: {z:.4f}  ih: {ih:.4f}")
+        status_text = f"ID: {sp_id}  |  X: {x:.4f}  Y: {y:.4f}  H: {z:.4f}  ih: {ih:.4f}"
+        self.dockwidget.lbl_sp.setText(status_text)
+        self.dockwidget.lbl_x.setText(f"X: {x:.4f}")
+        self.dockwidget.lbl_y.setText(f"Y: {y:.4f}")
+        self.dockwidget.lbl_z.setText(f"H: {z:.4f}")
+        self._standort_dlg.lbl_sp_dialog.setText(status_text)
         self.iface.messageBar().pushSuccess(
             "Standpunkt", f"Standpunkt '{sp_id}' gesetzt und in Layer gespeichert.")
     
+    def open_standort_dialog(self):
+        """Standort-Dialog anzeigen."""
+        self._standort_dlg.show()
+        self._standort_dlg.raise_()
+        self._standort_dlg.activateWindow()
+
+    def open_zielpunkt_dialog(self):
+        """Zielpunkt-Dialog anzeigen."""
+        self._zielpunkt_dlg.show()
+        self._zielpunkt_dlg.raise_()
+        self._zielpunkt_dlg.activateWindow()
+
+    def open_fernsteuerung_dialog(self):
+        """Fernsteuerungs-Dialog anzeigen."""
+        self._fernsteuerung_dlg.show()
+        self._fernsteuerung_dlg.raise_()
+        self._fernsteuerung_dlg.activateWindow()
+
     def open_resection_dialog(self):
         """Öffnet den Dialog für die Freie Stationierung."""
         dlg = ResectionDialog(
@@ -862,25 +1185,27 @@ class QGISSokkia:
         Übernimmt das Ergebnis des Rückwärtsschnitts in den Standpunkt
         und die Orientierung des Plugins.
         """
-        sp_id = self.dockwidget.input_standpoint.text() or "SP"
-        ih = float(self.dockwidget.input_ih.text() or 0)
+        sp_id = self._standort_dlg.input_standpoint.text() or "SP"
+        ih = float(self._standort_dlg.input_ih.text() or 0)
         self.sp = {"ID": sp_id, "RECHTS": x, "HOCH": y, "H": z, "ih": ih}
 
         self.orientation = z0_rad
         z0_gon = z0_rad * 200.0 / math.pi
 
         # UI-Felder aktualisieren
-        self.dockwidget.input_sp_x.setText(f"{x:.4f}")
-        self.dockwidget.input_sp_y.setText(f"{y:.4f}")
-        self.dockwidget.input_sp_z.setText(f"{z:.4f}")
-        self.dockwidget.input_orientation.setText(f"{z0_gon:.4f}")
+        self._standort_dlg.input_sp_x.setText(f"{x:.4f}")
+        self._standort_dlg.input_sp_y.setText(f"{y:.4f}")
+        self._standort_dlg.input_sp_z.setText(f"{z:.4f}")
+        self._standort_dlg.input_orientation.setText(f"{z0_gon:.4f}")
         self.dockwidget.lbl_x.setText(f"RECHTS: {x:.4f}")
         self.dockwidget.lbl_y.setText(f"HOCH: {y:.4f}")
         self.dockwidget.lbl_z.setText(f"HÖHE: {z:.4f}")
-        self.dockwidget.lbl_sp.setText(
+        status_text = (
             f"ID: {sp_id}  X: {x:.4f}  Y: {y:.4f}  Z: {z:.4f}  "
             f"z\u2080: {z0_gon:.4f} gon  [Freie Stationierung]"
         )
+        self.dockwidget.lbl_sp.setText(status_text)
+        self._standort_dlg.lbl_sp_dialog.setText(status_text)
 
         # Orientierungspfeil setzen (100 m in z₀-Richtung)
         end_x = x + 100.0 * math.sin(z0_rad)
@@ -906,7 +1231,7 @@ class QGISSokkia:
         
         #time.sleep(0.1)
         
-        stepsize = float(self.dockwidget.input_control_step.text())
+        stepsize = float(self._fernsteuerung_dlg.input_control_step.text())
         
         ha = self.measureValues["ha"]
         za = self.measureValues["za"]
@@ -972,6 +1297,14 @@ class QGISSokkia:
                 # Create the dockwidget (after translation) and keep reference
                 self.dockwidget = QGISSokkiaDockWidget()
 
+            # Detaildialoge einmalig erstellen
+            if self._standort_dlg is None:
+                self._standort_dlg = StandortDialog(parent=self.iface.mainWindow())
+            if self._zielpunkt_dlg is None:
+                self._zielpunkt_dlg = ZielpunktDialog(parent=self.iface.mainWindow())
+            if self._fernsteuerung_dlg is None:
+                self._fernsteuerung_dlg = FernsteuerungDialog(parent=self.iface.mainWindow())
+
             # connect to provide cleanup on closing of dockwidget
             self.dockwidget.closingPlugin.connect(self.onClosePlugin)
 
@@ -988,51 +1321,53 @@ class QGISSokkia:
             #connect 'initialize without device' btn
             self.dockwidget.btn_init.clicked.connect(self.initLayers)
 
-            #connect 'select coorinates from Map' btn
-            self.dockwidget.btn_select_sp.clicked.connect(self.selectCoordinatesFromMap)
-            self.dockwidget.btn_setSp.clicked.connect(self.setSp)
-            
+            # Hauptdock: "Standort …" Button öffnet den Standort-Dialog
+            self.dockwidget.btn_setSp.clicked.connect(self.open_standort_dialog)
+
+            # Hauptdock: Ziel- und Fernsteuerungs-Dialoge öffnen
+            self.dockwidget.btn_open_zielpunkt.clicked.connect(self.open_zielpunkt_dialog)
+            self.dockwidget.btn_open_fernsteuerung.clicked.connect(self.open_fernsteuerung_dialog)
+
+            # Standort-Dialog Verbindungen
+            self._standort_dlg.btn_select_sp.clicked.connect(self.selectCoordinatesFromMap)
+            self._standort_dlg.btn_select_ap.clicked.connect(self.selectApFromMap)
+            self._standort_dlg.btn_setSp_confirm.clicked.connect(self.setSp)
+            self._standort_dlg.btn_resection.clicked.connect(self.open_resection_dialog)
+
             #default values
-            #self.sp = {"ID": "SP1", "RECHTS": 0, "HOCH":0, "H": 0, "ih": 0} 
-            self.dockwidget.input_standpoint.setText(self.sp['ID'])
-            
-            
-            #connect control buttons
-            
-            self.dockwidget.btn_control_left.clicked.connect(lambda: self.control('h', -1))
-            self.dockwidget.btn_control_right.clicked.connect(lambda: self.control('h',1))
-            self.dockwidget.btn_control_up.clicked.connect(lambda: self.control('v', -1))
-            self.dockwidget.btn_control_down.clicked.connect(lambda: self.control('v', 1))
-            
+            self._standort_dlg.input_standpoint.setText(self.sp['ID'])
+
+            # Zielpunkt-Dialog Verbindungen
+            self._zielpunkt_dlg.radio_prism.clicked.connect(self.selectTarget)
+            self._zielpunkt_dlg.radio_reflex.clicked.connect(self.selectTarget)
+            self._zielpunkt_dlg.radio_reflectorless.clicked.connect(self.selectTarget)
+            self._zielpunkt_dlg.btn_setTarget.clicked.connect(self.setTarget)
+            self._zielpunkt_dlg.input_prismConstant.setText(str(self.targetPrismConstant))
+
+            # Fernsteuerungs-Dialog Verbindungen
+            self._fernsteuerung_dlg.btn_control_left.clicked.connect(lambda: self.control('h', -1))
+            self._fernsteuerung_dlg.btn_control_right.clicked.connect(lambda: self.control('h', 1))
+            self._fernsteuerung_dlg.btn_control_up.clicked.connect(lambda: self.control('v', -1))
+            self._fernsteuerung_dlg.btn_control_down.clicked.connect(lambda: self.control('v', 1))
 
             #connect 'toggle Laser from Map' btn
             self.dockwidget.btn_laser.clicked.connect(self.switchLaser)
 
-            #radio buttons for target selection
-            self.dockwidget.radio_prism.clicked.connect(self.selectTarget)
-            self.dockwidget.radio_reflex.clicked.connect(self.selectTarget)
-            self.dockwidget.radio_reflectorless.clicked.connect(self.selectTarget)
-            self.dockwidget.btn_setTarget.clicked.connect(self.setTarget)
-            
-            #set prismconstant to default value
-            self.dockwidget.input_prismConstant.setText(str(self.targetPrismConstant))
-            
             #Mess buttons
             self.dockwidget.btn_measure.clicked.connect(self.mesaure)
             self.dockwidget.btn_measure_a.clicked.connect(self.mesaure_angle)
             self.dockwidget.btn_measure_stop.clicked.connect(self.mesaure_stop)
-
-            #Freie Stationierung
-            self.dockwidget.btn_resection.clicked.connect(self.open_resection_dialog)
 
             #Koordinaten-Transfer
             self.dockwidget.btn_transfer.clicked.connect(self.open_transfer_dialog)
 
             # Linienabstand: nur Linienlayer anzeigen
             self.dockwidget.combo_line_layer.setFilters(QgsMapLayerProxyModel.LineLayer)
-            
-            
-            
+            self.dockwidget.combo_line_layer.layerChanged.connect(self._connect_line_layer_signals)
+            self._connect_line_layer_signals(self.dockwidget.combo_line_layer.currentLayer())
+
+            # Initiale Tooltips auf deaktivierten Buttons setzen
+            self._apply_connection_state(connected=False, initialized=False)
 
             # QTimer für thread-sichere Queue-Verarbeitung (Messdaten aus seriellem Thread)
             if not hasattr(self, '_queue_timer'):
