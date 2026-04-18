@@ -19,14 +19,14 @@
  *                                                                         *
  ***************************************************************************/
 """
-from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant, QDateTime, QTimer
+from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant, QDateTime, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QIcon, QColor
 import os
 
 from datetime import datetime
-from qgis.gui import QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint, QgsMapLayerComboBox
-from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsMapLayerProxyModel, QgsCoordinateReferenceSystem, QgsCoordinateTransform
-from qgis.PyQt.QtWidgets import QAction, QInputDialog, QDialog, QVBoxLayout, QFormLayout, QLabel, QLineEdit, QDialogButtonBox
+from qgis.gui import QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint, QgsMapLayerComboBox, QgsMapTool, QgsSnapIndicator
+from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsMapLayerProxyModel, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointLocator
+from qgis.PyQt.QtWidgets import QAction, QInputDialog, QDialog, QVBoxLayout, QFormLayout, QLabel, QLineEdit, QDialogButtonBox, QFileDialog
 import serial
 import serial.tools.list_ports
 import threading
@@ -59,6 +59,34 @@ def remove_all_rubber_bands(canvas):
     # Aktualisiere die Karte
     canvas.refresh()
 
+
+
+class SnapPointTool(QgsMapTool):
+    """Map-Tool mit Objektfang-Indikator. Snap wird während Mausbewegung berechnet."""
+    pointPicked = pyqtSignal(QgsPointXY)
+
+    def __init__(self, canvas):
+        super().__init__(canvas)
+        self._snap_indicator = QgsSnapIndicator(canvas)
+        self._last_match = None
+
+    def canvasMoveEvent(self, event):
+        match = self.canvas().snappingUtils().snapToMap(event.pos())
+        self._snap_indicator.setMatch(match)
+        self._last_match = match
+
+    def canvasPressEvent(self, event):
+        if self._last_match and self._last_match.isValid():
+            point = self._last_match.point()
+        else:
+            point = self.toMapCoordinates(event.pos())
+        self._snap_indicator.setMatch(QgsPointLocator.Match())
+        self.pointPicked.emit(point)
+        self.canvas().unsetMapTool(self)
+
+    def deactivate(self):
+        self._snap_indicator.setMatch(QgsPointLocator.Match())
+        super().deactivate()
 
 
 class SavePointDialog(QDialog):
@@ -191,6 +219,9 @@ class QGISSokkia:
         self.aplayer = None
         self._measure_queue = queue.Queue()
         self._transfer_mode = False
+        self._protokoll = []          # Protokolleinträge dieser Sitzung
+        self._protokoll_meta = {}     # Verbindungsinfos (Port, Baudrate, Gerät, CRS)
+        self._protokoll_tempfile = None  # Pfad der automatisch gespeicherten Protokolldatei
 
 
 
@@ -491,6 +522,20 @@ class QGISSokkia:
                 self.iface.messageBar().pushSuccess("Verbindung", info_text)
                 self.dockwidget.lbl_device_info.setText(
                     device_info if device_info else f"{port} · {baudrate} Baud")
+                # Protokoll für diese Sitzung starten
+                self._protokoll = []
+                self._protokoll_meta = {
+                    'port': port, 'baudrate': baudrate,
+                    'device': device_info or '(unbekannt)',
+                    'crs': self.crsName,
+                    'start': datetime.now(),
+                }
+                # Temp-Protokolldatei anlegen
+                temp_dir = os.path.join(self.plugin_dir, 'temp_protocols')
+                os.makedirs(temp_dir, exist_ok=True)
+                ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+                self._protokoll_tempfile = os.path.join(temp_dir, f'Protokoll_{ts}.txt')
+                self._protokoll_add('VERBINDUNG', f"Port: {port}  Baudrate: {baudrate}  Gerät: {device_info or '?'}  CRS: {self.crsName}")
             else:
                 raise serial.SerialException('Port konnte nicht geöffnet werden.')
 
@@ -582,6 +627,140 @@ class QGISSokkia:
         self.iface.messageBar().pushSuccess(
             "Initialisiert", f"Layer angelegt (offline)  |  CRS: {self.crsName}")
 
+    def _protokoll_add(self, typ: str, text: str):
+        """Fügt einen Eintrag zum laufenden Protokoll hinzu."""
+        self._protokoll.append({
+            'time': datetime.now(),
+            'typ': typ,
+            'text': text,
+        })
+
+    def _autosave_protokoll(self):
+        """Speichert das Protokoll automatisch in temp_protocols/ im Plugin-Verzeichnis."""
+        if not self._protokoll_tempfile:
+            return
+        try:
+            self._write_protokoll_to_file(self._protokoll_tempfile)
+        except Exception as e:
+            print(f'[Protokoll Autosave] {e}')
+
+    def _write_protokoll_to_file(self, filepath: str):
+        """Schreibt das Protokoll in die angegebene Datei (intern genutzt)."""
+        SEP  = '=' * 80
+        SEP2 = '-' * 80
+
+        def fmt(v, decimals=4):
+            try:
+                return f'{float(v):.{decimals}f}'
+            except (TypeError, ValueError):
+                return str(v) if v is not None else '—'
+
+        meta = self._protokoll_meta
+        lines = []
+        lines.append(SEP)
+        lines.append('  QGIS Sokkia Plugin  —  Messprotokoll')
+        lines.append(SEP)
+        lines.append(f"  Erstellt am  : {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
+        lines.append(f"  Sitzungsstart: {meta.get('start', datetime.now()).strftime('%d.%m.%Y %H:%M:%S')}")
+        lines.append(f"  Gerät        : {meta.get('device', '?')}")
+        lines.append(f"  Port / Baud  : {meta.get('port', '?')}  /  {meta.get('baudrate', '?')}")
+        lines.append(f"  Koordinaten  : {meta.get('crs', '?')}")
+        lines.append(SEP)
+        lines.append('')
+
+        n_station = sum(1 for e in self._protokoll if e['typ'] == 'STATIONIERUNG')
+        n_messung = sum(1 for e in self._protokoll if e['typ'] == 'MESSUNG')
+        lines.append(f'  Stationierungen: {n_station}    Messungen: {n_messung}')
+        lines.append('')
+
+        current_station = None
+        station_nr = 0
+        messung_nr = 0
+
+        for entry in self._protokoll:
+            t = entry['time'].strftime('%H:%M:%S.%f')[:-3]
+            typ = entry['typ']
+            if typ == 'VERBINDUNG':
+                lines.append(f'[{t}] VERBINDUNG')
+                lines.append(f"  {entry['text']}")
+                lines.append('')
+            elif typ == 'STATIONIERUNG':
+                station_nr += 1
+                d = entry.get('data', {})
+                lines.append(SEP2)
+                lines.append(f'[{t}] STATIONIERUNG #{station_nr}')
+                lines.append(f"  Standpunkt-Nr.    : {d.get('sp_id','?')}")
+                lines.append(f"  Rechts (X)        : {fmt(d.get('x'))} m")
+                lines.append(f"  Hoch   (Y)        : {fmt(d.get('y'))} m")
+                lines.append(f"  Höhe   (H)        : {fmt(d.get('h'))} m")
+                lines.append(f"  Instrumentenhöhe  : {fmt(d.get('ih'))} m")
+                lines.append(f"  Orientierung z0   : {fmt(d.get('orientation_gon'))} gon")
+                lines.append(f"  Anschlussrichtung : {d.get('ap_id','—')}  "
+                              f"X={fmt(d.get('ap_x'))}  Y={fmt(d.get('ap_y'))}")
+                lines.append('')
+                current_station = d
+                messung_nr = 0
+            elif typ == 'MESSUNG':
+                messung_nr += 1
+                d = entry.get('data', {})
+                lines.append(f"[{t}] Messung #{messung_nr}  —  Pkt: {d.get('id','?')}")
+                if current_station:
+                    lines.append(f"  Standpunkt        : {current_station.get('sp_id','?')}")
+                lines.append(f"  Hz (Messwert)     : {fmt(d.get('ha_raw'))} gon")
+                lines.append(f"  Hz (orientiert)   : {fmt(d.get('ha_oriented'))} gon")
+                lines.append(f"  ZA (Zenitwinkel)  : {fmt(d.get('za'))} gon")
+                lines.append(f"  SD (Schrägdistanz): {fmt(d.get('sd'))} m")
+                lines.append(f"  HD (Horizontaldist): {fmt(d.get('hd'))} m")
+                lines.append(f"  Zielh. (th)       : {fmt(d.get('th'))} m")
+                lines.append(f"  Prismenkonstante  : {fmt(d.get('prism_const'),1)} mm")
+                lines.append(f"  Ber. X (Rechts)   : {fmt(d.get('x'))} m")
+                lines.append(f"  Ber. Y (Hoch)     : {fmt(d.get('y'))} m")
+                lines.append(f"  Ber. Z (Höhe)     : {fmt(d.get('z'))} m")
+                lines.append('')
+            elif typ == 'TRENNUNG':
+                lines.append(SEP2)
+                lines.append(f'[{t}] TRENNUNG')
+                lines.append('')
+            else:
+                lines.append(f"[{t}] {typ}: {entry['text']}")
+                lines.append('')
+
+        lines.append(SEP)
+        lines.append(f'  Ende des Protokolls  —  {n_station} Stationierung(en)  /  {n_messung} Messung(en)')
+        lines.append(SEP)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+
+    def export_protokoll(self):
+        """Schreibt das Messprotokoll der aktuellen Sitzung in eine TXT-Datei."""
+        if not self._protokoll and not self._protokoll_meta:
+            self.iface.messageBar().pushWarning("Protokoll", "Keine Protokolldaten vorhanden.")
+            return
+
+        # Speicherort abfragen – temp-Datei als Vorschlag
+        default_name = os.path.basename(self._protokoll_tempfile) if self._protokoll_tempfile \
+            else "Protokoll_" + datetime.now().strftime('%Y%m%d_%H%M%S') + ".txt"
+        default_dir = QSettings().value('qgis_sokkia/last_protokoll_dir', os.path.expanduser('~'))
+        filepath, _ = QFileDialog.getSaveFileName(
+            self.iface.mainWindow(),
+            "Protokoll speichern",
+            os.path.join(default_dir, default_name),
+            "Textdateien (*.txt)"
+        )
+        if not filepath:
+            return
+        QSettings().setValue('qgis_sokkia/last_protokoll_dir', os.path.dirname(filepath))
+
+        n_station = sum(1 for e in self._protokoll if e['typ'] == 'STATIONIERUNG')
+        n_messung = sum(1 for e in self._protokoll if e['typ'] == 'MESSUNG')
+        try:
+            self._write_protokoll_to_file(filepath)
+            self.iface.messageBar().pushSuccess(
+                "Protokoll", f"Gespeichert: {filepath}  ({n_station} Stat. / {n_messung} Mess.)")
+        except Exception as e:
+            self.iface.messageBar().pushCritical("Protokoll-Fehler", str(e))
+
     def _close_serial(self):
         """Gibt die serielle Schnittstelle sicher frei (Thread-sicher, idempotent)."""
         self.serialStopEvent.set()
@@ -592,6 +771,7 @@ class QGISSokkia:
                 pass
 
     def disconnectFromSerial(self):
+        self._protokoll_add('TRENNUNG', 'Verbindung getrennt')
         self._close_serial()
         self._clear_direction_rubber_band()
         #Enable/disable buttons
@@ -605,27 +785,39 @@ class QGISSokkia:
             numbers = decoded.split()
             return [n[:3] + '.' + n[3:] for n in numbers]
 
+        import errno as _errno
         while not self.serialStopEvent.is_set() and self.serial.is_open:
             try:
                 # Im Transfermodus überlässt der readSerial die Daten dem Transfer-Dialog
                 if self._transfer_mode:
-                    import time
                     time.sleep(0.1)
                     continue
                 data = self.serial.readline()
-                if data:
-                    text = data.decode('utf-8', errors='replace')
-                    if not text.startswith('\x06'):
-                        parsed = parse_and_format_string(data)
-                        if len(parsed) >= 3:
-                            sd = float(parsed[0])
-                            za = float(parsed[1])
-                            ha = float(parsed[2])
-                            # Alle UI-/Layer-Operationen über Queue im Haupt-Thread
-                            self._measure_queue.put({
-                                'sd': sd, 'za': za, 'ha': ha,
-                                'is_distance': sd > 0,
-                            })
+                if not data:
+                    continue
+                text = data.decode('utf-8', errors='replace')
+                if not text.startswith('\x06'):
+                    parsed = parse_and_format_string(data)
+                    if len(parsed) >= 3:
+                        sd = float(parsed[0])
+                        za = float(parsed[1])
+                        ha = float(parsed[2])
+                        self._measure_queue.put({
+                            'sd': sd, 'za': za, 'ha': ha,
+                            'is_distance': sd > 0,
+                        })
+            except serial.SerialTimeoutException:
+                # Normaler Timeout bei leerem Port – einfach weiterlesen
+                continue
+            except serial.SerialException as e:
+                # Windows-Semaphor-Timeout (errno 121) – nicht-fataler Port-Hitch
+                if hasattr(e, 'args') and len(e.args) >= 4 and e.args[3] == 121:
+                    time.sleep(0.05)
+                    continue
+                # Echter Verbindungsfehler
+                self._measure_queue.put({'error': str(e)})
+                if not self.serial.is_open:
+                    break
             except Exception as e:
                 self._measure_queue.put({'error': str(e)})
                     
@@ -635,7 +827,10 @@ class QGISSokkia:
             while not self._measure_queue.empty():
                 item = self._measure_queue.get_nowait()
                 if 'error' in item:
-                    print(f"[Seriell] {item['error']}")
+                    err = item['error']
+                    # Semaphor-Timeout (Windows Error 121) nicht im Log anzeigen
+                    if '121' not in err:
+                        print(f"[Seriell] {err}")
                     continue
                 sd = item['sd']
                 za = item['za']
@@ -728,9 +923,8 @@ class QGISSokkia:
             hd = sd * math.sin(za*math.pi/200)
             
             #orientierung
-            print(f"{ha *200 / math.pi}")
+            ha_raw_proto = ha * 200.0 / math.pi  # Rohwert in Gon für Protokoll
             ha = ha + self.orientation*200 / math.pi
-            print(f"{ha *200 / math.pi}")
             
             th = float(self._zielpunkt_dlg.input_th.text())
             
@@ -785,7 +979,14 @@ class QGISSokkia:
                 print('Punkt gespeichert:', save_id)
                 self.mlayer.updateExtents()
                 self.mlayer.triggerRepaint()
-
+                # Protokoll-Eintrag
+                self._protokoll_add('MESSUNG', '', )
+                self._protokoll[-1]['data'] = {
+                    'id': save_id, 'ha_raw': ha_raw_proto, 'ha_oriented': ha,
+                    'za': za, 'sd': sd, 'hd': hd, 'th': th,
+                    'prism_const': prism_constant, 'x': x, 'y': y, 'z': z,
+                }
+                self._autosave_protokoll()
                 # Autoinkrement nur wenn Punkt wirklich gespeichert
                 if self._zielpunkt_dlg.cb_autoincerement.isChecked():
                     newid = increment_last_segment(save_id)
@@ -980,7 +1181,7 @@ class QGISSokkia:
     
     def selectCoordinatesFromMap(self):
         """Aktiviert ein Kartenwerkzeug zum Aufnehmen des Standpunkts per Mausklick."""
-        def capture_coordinate(point, button):
+        def capture_coordinate(point):
             self._standort_dlg.input_sp_x.setText(f"{point.x():.4f}")
             self._standort_dlg.input_sp_y.setText(f"{point.y():.4f}")
             self.dockwidget.lbl_x.setText(f"RECHTS: {point.x():.4f}")
@@ -991,14 +1192,14 @@ class QGISSokkia:
             self.iface.messageBar().pushInfo(
                 "Standpunkt", f"Koordinaten übernommen: X={point.x():.4f}  Y={point.y():.4f}")
 
-        self._sp_map_tool = QgsMapToolEmitPoint(self.canvas)
-        self._sp_map_tool.canvasClicked.connect(capture_coordinate)
+        self._sp_map_tool = SnapPointTool(self.canvas)
+        self._sp_map_tool.pointPicked.connect(capture_coordinate)
         self.canvas.setMapTool(self._sp_map_tool)
         self.iface.messageBar().pushInfo("Standpunkt", "Klicken Sie in die Karte, um Koordinaten zu übernehmen.")
 
     def selectApFromMap(self):
         """Aktiviert ein Kartenwerkzeug zum Aufnehmen der Anschlussrichtung per Mausklick."""
-        def capture_ap(point, button):
+        def capture_ap(point):
             self._standort_dlg.input_ap_x.setText(f"{point.x():.4f}")
             self._standort_dlg.input_ap_y.setText(f"{point.y():.4f}")
             self.canvas.unsetMapTool(self._ap_map_tool)
@@ -1007,8 +1208,8 @@ class QGISSokkia:
             self.iface.messageBar().pushInfo(
                 "Anschlussrichtung", f"Koordinaten übernommen: X={point.x():.4f}  Y={point.y():.4f}")
 
-        self._ap_map_tool = QgsMapToolEmitPoint(self.canvas)
-        self._ap_map_tool.canvasClicked.connect(capture_ap)
+        self._ap_map_tool = SnapPointTool(self.canvas)
+        self._ap_map_tool.pointPicked.connect(capture_ap)
         self.canvas.setMapTool(self._ap_map_tool)
         self.iface.messageBar().pushInfo("Anschlussrichtung", "Klicken Sie in die Karte, um den Anschlusspunkt zu übernehmen.")
    
@@ -1137,6 +1338,17 @@ class QGISSokkia:
         self._standort_dlg.lbl_sp_dialog.setText(status_text)
         self.iface.messageBar().pushSuccess(
             "Standpunkt", f"Standpunkt '{sp_id}' gesetzt und in Layer gespeichert.")
+        # Protokoll-Eintrag
+        ap_id = self._standort_dlg.input_ap.text() if self._standort_dlg.groupBox_8.isChecked() else ''
+        ap_x = self._standort_dlg.input_ap_x.text() if self._standort_dlg.groupBox_8.isChecked() else ''
+        ap_y = self._standort_dlg.input_ap_y.text() if self._standort_dlg.groupBox_8.isChecked() else ''
+        self._protokoll_add('STATIONIERUNG', '')
+        self._protokoll[-1]['data'] = {
+            'sp_id': sp_id, 'x': x, 'y': y, 'h': z, 'ih': ih,
+            'orientation_gon': self.orientation * 200.0 / math.pi,
+            'ap_id': ap_id, 'ap_x': ap_x, 'ap_y': ap_y,
+        }
+        self._autosave_protokoll()
     
     def open_standort_dialog(self):
         """Standort-Dialog anzeigen."""
@@ -1312,6 +1524,14 @@ class QGISSokkia:
             self._refresh_serial_ports()
             self.dockwidget.btn_refresh_ports.clicked.connect(self._refresh_serial_ports)
 
+            # CRS-Widget mit Projekt-CRS vorbelegen
+            project_crs = QgsProject.instance().crs()
+            if project_crs.isValid():
+                self.dockwidget.mQgsProjectionSelectionWidget.setCrs(project_crs)
+            else:
+                self.dockwidget.mQgsProjectionSelectionWidget.setCrs(
+                    QgsCoordinateReferenceSystem("EPSG:25832"))
+
             #connect 'connect' btn
             self.dockwidget.btn_connect.clicked.connect(self.connectToSerial)
             
@@ -1360,7 +1580,7 @@ class QGISSokkia:
 
             #Koordinaten-Transfer
             self.dockwidget.btn_transfer.clicked.connect(self.open_transfer_dialog)
-
+            self.dockwidget.btn_export_protokoll.clicked.connect(self.export_protokoll)
             # Linienabstand: nur Linienlayer anzeigen
             self.dockwidget.combo_line_layer.setFilters(QgsMapLayerProxyModel.LineLayer)
             self.dockwidget.combo_line_layer.layerChanged.connect(self._connect_line_layer_signals)
