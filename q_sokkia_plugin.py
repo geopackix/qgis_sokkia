@@ -61,6 +61,18 @@ def remove_all_rubber_bands(canvas):
     canvas.refresh()
 
 
+def parse_float(value):
+    """
+    Konvertiert einen String zu Float. Ersetzt Kommas durch Punkte (Lokalisierung).
+    """
+    if isinstance(value, (int, float)):
+        return float(value)
+    if value is None or value == '':
+        return 0.0
+    # Kommas durch Punkte ersetzen (deutsche Dezimal-Trennzeichen)
+    s = str(value).strip().replace(',', '.')
+    return float(s)
+
 
 class SnapPointTool(QgsMapTool):
     """Map-Tool mit Objektfang-Indikator. Snap wird während Mausbewegung berechnet."""
@@ -598,10 +610,25 @@ class QGISSokkia:
         attr_datetime = QgsField('Recordtime', QVariant.DateTime)
         x = QgsField('x', QVariant.Double)
         y = QgsField('y', QVariant.Double)
-        
+        z = QgsField('z', QVariant.Double)
+        # Klaffungen / Residuen aus der Freien Stationierung
+        vHz = QgsField('vHz_mgon', QVariant.Double)
+        vSD = QgsField('vSD_mm', QVariant.Double)
+        vZA = QgsField('vZA_mgon', QVariant.Double)
+        hz_gon = QgsField('Hz_gon', QVariant.Double)
+        za_gon = QgsField('ZA_gon', QVariant.Double)
+        sd_m = QgsField('SD_m', QVariant.Double)
+        sd_calc = QgsField('SD_ber_m', QVariant.Double)
+        za_calc = QgsField('ZA_ber_gon', QVariant.Double)
+        t_gon = QgsField('t_gon', QVariant.Double)
+        station = QgsField('Station', QVariant.String)
+
         qml_file = f'{self.plugin_dir}/ap.qml'
         self.aplayer.loadNamedStyle(qml_file)
-        self.aplayer.dataProvider().addAttributes([attr_pkno,attr_datetime,x,y])
+        self.aplayer.dataProvider().addAttributes([
+            attr_pkno, attr_datetime, x, y, z,
+            vHz, vSD, vZA, hz_gon, za_gon, sd_m, sd_calc, za_calc, t_gon, station,
+        ])
         self.aplayer.updateFields()  
 
     def _add_temp_layers_into_group(self, group_name: str):
@@ -715,13 +742,19 @@ class QGISSokkia:
                 if res:
                     pts = res.get('points', [])
                     std = res.get('std_dev', [0, 0, 0])
+                    redundancy = res.get('redundancy', 0)
+                    z0_gon_res = res.get('z0_gon', 0)
                     lines.append(f"  [Freie Stationierung  —  {len(pts)} Anschlusspunkte]")
+                    lines.append(f"  Orientierung z₀   : {z0_gon_res:.4f} gon")
                     lines.append(f"  Genauigkeit:  "
                                  f"σX: ±{std[0]:.4f} m   "
                                  f"σY: ±{std[1]:.4f} m   "
-                                 f"σZ: ±{std[2]:.4f} m   "
-                                 f"σ₀: {res.get('sigma0', 0):.4f} m   "
-                                 f"f: {res.get('dof', 0)}")
+                                 f"σZ: ±{std[2]:.4f} m")
+                    lines.append(f"  σ₀ (a-posteriori) : {res.get('sigma0', 0):.4f} m   "
+                                 f"Freiheitsgrade f: {res.get('dof', 0)}   "
+                                 f"Redundanz: {redundancy}")
+                    lines.append(f"  [Schwellwerte BW:  vHz ±20*/±50**,  vSD ±20*/±50** mm,  vZA ±20*/±50** mgon]")
+                    lines.append('')
                     lines.append(f"  {'Punkt':<14}  {'X-AP [m]':>14}  {'Y-AP [m]':>14}  {'Z-AP [m]':>9}  "
                                  f"{'Hz [gon]':>10}  {'t [gon]':>10}  {'vHz [mgon]':>10}  "
                                  f"{'SD [m]':>9}  {'SDber [m]':>9}  {'vSD [mm]':>8}  "
@@ -731,12 +764,27 @@ class QGISSokkia:
                                  f"{'-'*9}  {'-'*9}  {'-'*8}  "
                                  f"{'-'*10}  {'-'*11}  {'-'*10}")
                     for pt in pts:
+                        def fmt_check_res(val, thresh_warn, thresh_err):
+                            s = f"{val:+.1f}"
+                            abs_v = abs(val)
+                            if abs_v > thresh_err:
+                                return s.rjust(9) + "**"
+                            elif abs_v > thresh_warn:
+                                return s.rjust(8) + "*"
+                            return s.rjust(10)
+                        hz_m = fmt_check_res(pt['hz_res_mgon'], 20.0, 50.0)
+                        sd_m = fmt_check_res(pt['sd_res_mm'], 20.0, 50.0)
+                        za_m = fmt_check_res(pt['za_res_mgon'], 20.0, 50.0)
                         lines.append(
                             f"  {pt['name']:<14}  {pt['ap_x']:>14.4f}  {pt['ap_y']:>14.4f}  {pt['ap_z']:>9.4f}  "
-                            f"{pt['hz_gon']:>10.4f}  {pt['t_gon']:>10.4f}  {pt['hz_res_mgon']:>+10.1f}  "
-                            f"{pt['sd_m']:>9.4f}  {pt['sd_calc']:>9.4f}  {pt['sd_res_mm']:>+8.2f}  "
-                            f"{pt['za_gon']:>10.4f}  {pt['za_calc']:>11.4f}  {pt['za_res_mgon']:>+10.1f}"
+                            f"{pt['hz_gon']:>10.4f}  {pt['t_gon']:>10.4f}  {hz_m}  "
+                            f"{pt['sd_m']:>9.4f}  {pt['sd_calc']:>9.4f}  {sd_m}  "
+                            f"{pt['za_gon']:>10.4f}  {pt['za_calc']:>11.4f}  {za_m}"
                         )
+                    lines.append('')
+                    lines.append(f"  Legende:  * = WARN (±20 mgon Hz, ±20 mm SD, ±20 mgon ZA)")
+                    lines.append(f"            ** = ERROR (±50 mgon Hz, ±50 mm SD, ±50 mgon ZA)")
+                    lines.append('')
                 else:
                     lines.append(f"  Anschlussrichtung : {d.get('ap_id','—')}  "
                                  f"X={fmt(d.get('ap_x'))}  Y={fmt(d.get('ap_y'))}")
@@ -1348,22 +1396,107 @@ class QGISSokkia:
         self.splayer.triggerRepaint()
         
     def addAp(self):
-        if self.aplayer is None:
+        # Ziel-Layer: wenn der Benutzer einen passenden Point-Layer aktiv hat,
+        # verwenden wir diesen als Ziel für den Anschlusspunkt. Ansonsten
+        # wird der interne temporäre `aplayer` genutzt.
+        target_layer = None
+        try:
+            layer = self.iface.activeLayer()
+            if layer is not None and hasattr(layer, 'wkbType') and QgsWkbTypes.isPointType(layer.wkbType()):
+                target_layer = layer
+        except Exception:
+            target_layer = None
+
+        if target_layer is None:
+            # Fallback auf internen AP-Layer
+            target_layer = self.aplayer
+
+        if target_layer is None:
             return
+
         point = QgsPointXY(self.ap["RECHTS"], self.ap["HOCH"])
-            
-        feature = QgsFeature()
-        feature.setGeometry(QgsGeometry.fromPointXY(point))
-        
+        feat = QgsFeature(target_layer.fields()) if target_layer.fields() is not None else QgsFeature()
+        feat.setGeometry(QgsGeometry.fromPointXY(point))
 
-        feature.setAttributes([self.ap['ID'],QDateTime.currentDateTime(),self.ap["RECHTS"], self.ap["HOCH"]])
+        # Attribute setzen, wenn Felder vorhanden sind (nach Namen suchen)
+        flds = target_layer.fields()
+        attrs = [None] * flds.count()
+        # Punkt-ID
+        idx_id = flds.indexFromName('Punktnummer')
+        if idx_id < 0:
+            idx_id = flds.indexFromName('ID')
+        if idx_id < 0:
+            idx_id = flds.indexFromName(target_layer.displayField()) if target_layer.displayField() else -1
+        if idx_id >= 0:
+            attrs[idx_id] = self.ap.get('ID')
+        # Recordtime
+        idx_rt = flds.indexFromName('Recordtime')
+        if idx_rt >= 0:
+            attrs[idx_rt] = QDateTime.currentDateTime()
+        # Koordinatenfelder
+        idx_x = flds.indexFromName('x')
+        idx_y = flds.indexFromName('y')
+        idx_z = flds.indexFromName('z')
+        if idx_x >= 0:
+            attrs[idx_x] = self.ap.get('RECHTS')
+        if idx_y >= 0:
+            attrs[idx_y] = self.ap.get('HOCH')
+        if idx_z >= 0:
+            attrs[idx_z] = self.ap.get('H')
 
+        # Fallback: wenn es überhaupt keine Felder gibt, setAttributes wird ignoriert
+        try:
+            feat.setAttributes(attrs)
+        except Exception:
+            pass
 
-        self.aplayer.dataProvider().addFeature(feature)
-        print('Station gespeichert')
-        
+        target_layer.dataProvider().addFeature(feat)
+        print('Anschlusspunkt gespeichert in', target_layer.name())
+
+        target_layer.updateExtents()
+        target_layer.triggerRepaint()
+
+    def _save_resection_aps(self, resection_details: dict):
+        """Speichert alle Anschlusspunkte der Freien Stationierung mit Klaffungen im AP-Layer."""
+        if self.aplayer is None or resection_details is None:
+            return
+        pts = resection_details.get('points', [])
+        if not pts:
+            return
+        sp_id = self.sp.get('ID', '?')
+        flds = self.aplayer.fields()
+        new_feats = []
+        for pt in pts:
+            feat = QgsFeature(flds)
+            feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(pt['ap_x'], pt['ap_y'])))
+            attrs = [None] * flds.count()
+            field_map = {
+                'Punktnummer': pt.get('name'),
+                'Recordtime':  QDateTime.currentDateTime(),
+                'x':           pt.get('ap_x'),
+                'y':           pt.get('ap_y'),
+                'z':           pt.get('ap_z'),
+                'vHz_mgon':    pt.get('hz_res_mgon'),
+                'vSD_mm':      pt.get('sd_res_mm'),
+                'vZA_mgon':    pt.get('za_res_mgon'),
+                'Hz_gon':      pt.get('hz_gon'),
+                'ZA_gon':      pt.get('za_gon'),
+                'SD_m':        pt.get('sd_m'),
+                'SD_ber_m':    pt.get('sd_calc'),
+                'ZA_ber_gon':  pt.get('za_calc'),
+                't_gon':       pt.get('t_gon'),
+                'Station':     sp_id,
+            }
+            for name, val in field_map.items():
+                idx = flds.indexFromName(name)
+                if idx >= 0 and val is not None:
+                    attrs[idx] = val
+            feat.setAttributes(attrs)
+            new_feats.append(feat)
+        self.aplayer.dataProvider().addFeatures(new_feats)
         self.aplayer.updateExtents()
-        self.aplayer.triggerRepaint() #re-draw layer
+        self.aplayer.triggerRepaint()
+        print(f'{len(new_feats)} Anschlusspunkte (Freie Stationierung) in AP-Layer gespeichert')
     
     def _connect_line_layer_signals(self, layer):
         """Verbindet selectionChanged des aktuellen Linienlayers zur Live-Anzeige."""
@@ -1454,11 +1587,11 @@ class QGISSokkia:
 
     def calc_orientation(self):
         try:
-            ap_x = float(self._standort_dlg.input_ap_x.text())
-            ap_y = float(self._standort_dlg.input_ap_y.text())
+            ap_x = parse_float(self._standort_dlg.input_ap_x.text())
+            ap_y = parse_float(self._standort_dlg.input_ap_y.text())
             ap_name = self._standort_dlg.input_ap.text().strip()
-            sp_x = float(self._standort_dlg.input_sp_x.text())
-            sp_y = float(self._standort_dlg.input_sp_y.text())
+            sp_x = parse_float(self._standort_dlg.input_sp_x.text())
+            sp_y = parse_float(self._standort_dlg.input_sp_y.text())
         except ValueError as e:
             self.iface.messageBar().pushWarning("Orientierung", f"Ungültige Koordinate: {e}")
             return
@@ -1659,10 +1792,10 @@ class QGISSokkia:
     def setSp(self):
         try:
             sp_id = self._standort_dlg.input_standpoint.text().strip() or "SP"
-            x = float(self._standort_dlg.input_sp_x.text())
-            y = float(self._standort_dlg.input_sp_y.text())
-            z = float(self._standort_dlg.input_sp_z.text())
-            ih = float(self._standort_dlg.input_ih.text())
+            x = parse_float(self._standort_dlg.input_sp_x.text())
+            y = parse_float(self._standort_dlg.input_sp_y.text())
+            z = parse_float(self._standort_dlg.input_sp_z.text())
+            ih = parse_float(self._standort_dlg.input_ih.text())
         except ValueError as e:
             self.iface.messageBar().pushWarning("Standpunkt", f"Ungültige Eingabe: {e}")
             return
@@ -1726,6 +1859,9 @@ class QGISSokkia:
             self.mlayer,
             parent=self.iface.mainWindow()
         )
+        # Instrumentenhöhe von der Standort-Dialog vorausfüllen
+        ih_value = self._standort_dlg.input_ih.text()
+        dlg.input_ih.setText(ih_value if ih_value else "0.0")
         dlg.result_accepted.connect(self._apply_resection_result)
         dlg.exec_()
 
@@ -1749,7 +1885,11 @@ class QGISSokkia:
         und die Orientierung des Plugins.
         """
         sp_id = self._standort_dlg.input_standpoint.text() or "SP"
-        ih = float(self._standort_dlg.input_ih.text() or 0)
+        # Instrumentenhöhe: aus Resection-Dialog wenn vorhanden, sonst von Standort-Dialog
+        if resection_details and 'ih' in resection_details:
+            ih = resection_details['ih']
+        else:
+            ih = parse_float(self._standort_dlg.input_ih.text() or 0)
         self.sp = {"ID": sp_id, "RECHTS": x, "HOCH": y, "H": z, "ih": ih}
 
         self.orientation = z0_rad
@@ -1779,7 +1919,11 @@ class QGISSokkia:
         # Standpunkt in Layer speichern
         self.addStation()
 
-        # Protokoll-Eintrag
+        # Anschlusspunkte mit Klaffungen im AP-Layer speichern
+        if resection_details:
+            self._save_resection_aps(resection_details)
+
+        # Protokoll-Eintrag (alle stationierungsrelevanten Größen)
         self._protokoll_add('STATIONIERUNG', '')
         self._protokoll[-1]['data'] = {
             'sp_id': sp_id, 'x': x, 'y': y, 'h': z, 'ih': ih,
@@ -1789,10 +1933,12 @@ class QGISSokkia:
         }
         self._autosave_protokoll()
 
+        n_aps = len(resection_details.get('points', [])) if resection_details else 0
         self.iface.messageBar().pushSuccess(
             "Freie Stationierung",
             f"Standpunkt gesetzt \u2192 X={x:.4f} m, Y={y:.4f} m, "
-            f"Z={z:.4f} m, z\u2080={z0_gon:.4f} gon"
+            f"Z={z:.4f} m, z\u2080={z0_gon:.4f} gon  "
+            f"({n_aps} Anschlusspunkte in AP-Layer gespeichert)"
         )
 
     def control(self, direction, step):

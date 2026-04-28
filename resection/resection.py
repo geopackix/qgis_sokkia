@@ -273,14 +273,44 @@ def resection(
     if has_vectors:
         # Mit Vektoren kann linear initialisiert werden
         X0 = np.mean(P[:n_v] - V_vec, axis=0)
-    elif has_distances:
-        # Mit Distanzen: Zentralpunkt der Anschlusspunkte als Näherung
-        X0 = np.mean(P[:n_d], axis=0)
+    elif has_slant_distances or has_distances:
+        # Bessere Initialisierung bei vorhandenen Distanzen:
+        # Schnelle Vor-Iteration (nur Distanzen, 3 Unknowns) für stabiles X0
+        X0 = np.mean(P, axis=0)
+        _S = S_meas if has_slant_distances else None
+        _D = D_meas if has_distances else None
+        for _pre_iter in range(max_iterations):
+            _l_pre = []
+            _A_pre = []
+            if _S is not None:
+                for i in range(n_s):
+                    diff = P[i] - X0
+                    dist = np.linalg.norm(diff)
+                    if dist < 1e-10:
+                        dist = 1e-10
+                    _l_pre.append(np.array([_S[i] - dist]))
+                    _A_pre.append((-diff / dist).reshape(1, 3))
+            if _D is not None:
+                for i in range(n_d):
+                    diff = P[i] - X0
+                    dist = np.linalg.norm(diff[:2])
+                    if dist < 1e-10:
+                        dist = 1e-10
+                    grad = -diff[:2] / dist
+                    _A_pre.append(np.array([[grad[0], grad[1], 0.0]]))
+                    _l_pre.append(np.array([_D[i] - dist]))
+            _l_vec = np.concatenate(_l_pre)
+            _A_mat = np.vstack(_A_pre)
+            try:
+                _dX = np.linalg.lstsq(_A_mat, _l_vec, rcond=None)[0]
+            except np.linalg.LinAlgError:
+                break
+            X0 = X0 + _dX
+            if np.max(np.abs(_dX)) < tolerance:
+                break
     elif has_directions:
-        # Mit Richtungen: Zentralpunkt nehmen
         X0 = np.mean(P[:n_r], axis=0)
     elif has_hz_angles or has_v_angles:
-        # Mit Winkeln: Zentralpunkt nehmen
         X0 = np.mean(P, axis=0)
     else:
         X0 = np.mean(P, axis=0)
@@ -292,9 +322,18 @@ def resection(
     o = 0.0
     if has_hz_angles:
         n_unknowns = 4
-        # Näherungswert für Orientierung aus erster Hz-Messung
-        diff0 = P[0] - X
-        o = HZ_meas[0] - np.arctan2(diff0[0], diff0[1])
+        # Näherungswert für Orientierung: Mittel über alle Hz-Messungen
+        # o_i = HZ_meas[i] - atan2(dx_i, dy_i) für jeden Punkt
+        o_list = []
+        for i in range(n_hz):
+            diff_i = P[i] - X
+            o_i = HZ_meas[i] - np.arctan2(diff_i[0], diff_i[1])
+            o_list.append(o_i)
+        # Kreismittel (Periodizität 2π beachten)
+        o = np.arctan2(
+            np.mean(np.sin(o_list)),
+            np.mean(np.cos(o_list))
+        )
 
     # Gauss-Newton-Iteration
     for iteration in range(max_iterations):
@@ -579,7 +618,8 @@ def resection(
             l_final.append([v_res])
 
     l_final_vec = np.concatenate(l_final)
-    ssq = np.sum(l_final_vec**2)
+    # Gewichtete Quadratsumme: v^T W v
+    ssq = float(l_final_vec @ W_diag @ l_final_vec)
     sigma0_sq = ssq / dof
     sigma0 = np.sqrt(sigma0_sq)
 
@@ -594,8 +634,8 @@ def resection(
     std_dev = np.sqrt(np.abs(np.diag(Qxx)))
 
     # Weitere Metriken
-    rms_residual = np.sqrt(ssq / len(l_final_vec))
-    max_res_idx = np.argmax(np.linalg.norm(l_final_vec.reshape(-1, 1), axis=1))
+    rms_residual = np.sqrt(float(np.sum(l_final_vec**2)) / len(l_final_vec))
+    max_res_idx = np.argmax(np.abs(l_final_vec))
     redundancy = dof / n_meas
 
     # Gesamtanzahl der Anschlusspunkte, die verwendet wurden

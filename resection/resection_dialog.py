@@ -22,7 +22,7 @@ from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGroupBox,
     QPushButton, QTableWidget, QTableWidgetItem,
     QLabel, QComboBox, QHeaderView, QMessageBox,
-    QSizePolicy, QFrame, QCheckBox,
+    QSizePolicy, QFrame, QCheckBox, QLineEdit,
 )
 from qgis.PyQt.QtCore import Qt, pyqtSignal
 from qgis.PyQt.QtGui import QColor, QFont
@@ -47,6 +47,17 @@ def _gon_to_rad(gon: float) -> float:
 
 def _rad_to_gon(rad: float) -> float:
     return rad * 200.0 / math.pi
+
+
+def _parse_float(value) -> float:
+    """Konvertiert einen String/Wert zu Float. Ersetzt Kommas durch Punkte (Lokalisierung)."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    if value is None or value == '':
+        return 0.0
+    # Kommas durch Punkte ersetzen (deutsche Dezimal-Trennzeichen)
+    s = str(value).strip().replace(',', '.')
+    return float(s)
 
 
 def _normalize_gon(gon: float) -> float:
@@ -215,6 +226,19 @@ class ResectionDialog(QDialog):
 
         main.addWidget(grp_assign)
 
+        # ── 2b. Instrumentenhöhe ──────────────────────────────────────────────
+        ih_row = QHBoxLayout()
+        ih_row.addStretch()
+        ih_row.addWidget(QLabel("Instrumentenhöhe (ih):"))
+        self.input_ih = QLineEdit()
+        self.input_ih.setText("0.0")
+        self.input_ih.setMaximumWidth(100)
+        self.input_ih.setToolTip("Instrumentenhöhe über Standpunkt in Metern")
+        ih_row.addWidget(self.input_ih)
+        ih_row.addWidget(QLabel("m"))
+        ih_row.addStretch()
+        main.addLayout(ih_row)
+
         # ── 3. Berechnen-Button ───────────────────────────────────────────────
         self.btn_calc = QPushButton("  Rückwärtsschnitt berechnen  ")
         f = QFont()
@@ -356,11 +380,11 @@ class ResectionDialog(QDialog):
                 continue
             try:
                 self._measurements.append({
-                    "label": f"{pnr}  |  Hz={float(hz):.4f}  ZA={float(za):.4f}  SD={float(sd):.4f}",
+                    "label": f"{pnr}  |  Hz={_parse_float(hz):.4f}  ZA={_parse_float(za):.4f}  SD={_parse_float(sd):.4f}",
                     "pnr": pnr,
-                    "hz": float(hz),
-                    "za": float(za),
-                    "sd": float(sd),
+                    "hz": _parse_float(hz),
+                    "za": _parse_float(za),
+                    "sd": _parse_float(sd),
                 })
             except (TypeError, ValueError):
                 continue
@@ -614,12 +638,19 @@ class ResectionDialog(QDialog):
             _gon_to_rad(100.0 - o["za_gon"]) for o in obs
         ])
 
-        # Resektionsberechnung
+        # Horizontalrichtungen (gon) → Radiant für den Ausgleich
+        # Hz-Werte auf [0, 400) normieren (Tachymeter kann > 400 gon liefern)
+        hz_angles = np.array([_gon_to_rad(o["hz_gon"] % 400.0) for o in obs])
+
+        # Resektionsberechnung (SD + Hz + ZA im Ausgleich, gleiche Gewichte)
+        # Gleiche Gewichte sind robust bei heterogener Datenqualität und
+        # vermeiden Übergewichtung fehlerhafter Winkelbeobachtungen.
         try:
             result = resection(
                 observed_points,
                 measured_slant_distances=slant_distances,
                 measured_v_angles=v_angles,
+                measured_hz_angles=hz_angles,
             )
         except Exception as e:
             QMessageBox.critical(
@@ -630,19 +661,21 @@ class ResectionDialog(QDialog):
 
         X_P, Y_P, Z_P = result.position
 
-        # Orientierung z₀ aus Hz-Messungen ableiten
-        # Richtungswinkel t (gon, NN = Nord, CW) vom Standpunkt zum AP:
-        #   t = atan2(ΔX, ΔY) [Rechts = X-Achse, Hoch = Y-Achse]
-        # z₀ = t - Hz  (Orientierungsunbekannte)
-        z0_list = []
-        for o in obs:
-            t_rad = math.atan2(o["X"] - X_P, o["Y"] - Y_P)
-            t_gon = _normalize_gon(_rad_to_gon(t_rad))
-            z0_i = _normalize_gon(t_gon - o["hz_gon"])
-            z0_list.append(z0_i)
+        # Orientierung z₀ aus dem Ausgleich (4. Unbekannte)
+        if result.orientation is not None:
+            z0_rad = result.orientation
+            z0_gon = _normalize_gon(_rad_to_gon(z0_rad))
+        else:
+            # Fallback: post-hoc aus Hz-Messungen ableiten
+            z0_list = []
+            for o in obs:
+                t_rad = math.atan2(o["X"] - X_P, o["Y"] - Y_P)
+                t_gon = _normalize_gon(_rad_to_gon(t_rad))
+                z0_i = _normalize_gon(t_gon - o["hz_gon"])
+                z0_list.append(z0_i)
+            z0_gon = _mean_angle_gon(z0_list)
+            z0_rad = _gon_to_rad(z0_gon)
 
-        z0_gon = _mean_angle_gon(z0_list)
-        z0_rad = _gon_to_rad(z0_gon)
         self._result_z0_rad = z0_rad
         self._result = result
 
@@ -667,8 +700,17 @@ class ResectionDialog(QDialog):
         # Residualtabelle füllen
         self.res_table.setRowCount(0)
 
-        # 3-sigma-Schwellwert für Markierung
-        threshold_sd = 3.0 * result.sigma0
+        # Schwellwerte für Liegenschaftsvermessungen Baden-Württemberg (DIN 18709)
+        # WARN: ±20 mgon/mm, ERROR: ±50 mgon/mm
+        THRESHOLD_HZ_WARN = 20.0    # mgon
+        THRESHOLD_HZ_ERROR = 50.0   # mgon
+        THRESHOLD_SD_WARN = 20.0    # mm
+        THRESHOLD_SD_ERROR = 50.0   # mm
+        THRESHOLD_ZA_WARN = 20.0    # mgon
+        THRESHOLD_ZA_ERROR = 50.0   # mgon
+
+        # Orientierung z₀ bereits berechnet, wird benötigt für Hz-Residuen
+        # (z0_gon wurde oben schon berechnet)
 
         for i, o in enumerate(obs):
             r = self.res_table.rowCount()
@@ -690,6 +732,12 @@ class ResectionDialog(QDialog):
             t_rad = math.atan2(diff[0], diff[1])
             t_gon = _normalize_gon(_rad_to_gon(t_rad))
 
+            # Hz-Residuum
+            hz_res_gon = _normalize_gon(t_gon - z0_gon - o["hz_gon"])
+            if hz_res_gon > 200.0:
+                hz_res_gon -= 400.0
+            hz_res_mgon = hz_res_gon * 1000.0
+
             items = [
                 o["name"],
                 f"{sd_calc:.4f}",
@@ -703,11 +751,18 @@ class ResectionDialog(QDialog):
                 it.setTextAlignment(Qt.AlignCenter)
                 self.res_table.setItem(r, col, it)
 
-            # Auffällige Residuen rot hinterlegen (> 3σ bei SD)
-            if abs(sd_res) > threshold_sd:
+            # Auffällige Residuen rot/orange hinterlegen
+            bg_color = None
+            if abs(hz_res_mgon) > THRESHOLD_HZ_ERROR or abs(sd_res * 1000) > THRESHOLD_SD_ERROR or abs(za_res * 1000) > THRESHOLD_ZA_ERROR:
+                # ERROR: Tiefrot
+                bg_color = QColor(255, 100, 100)
+            elif abs(hz_res_mgon) > THRESHOLD_HZ_WARN or abs(sd_res * 1000) > THRESHOLD_SD_WARN or abs(za_res * 1000) > THRESHOLD_ZA_WARN:
+                # WARN: Hellorange
+                bg_color = QColor(255, 200, 150)
+
+            if bg_color is not None:
                 for col in range(6):
-                    self.res_table.item(r, col).setBackground(
-                        QColor(255, 200, 200))
+                    self.res_table.item(r, col).setBackground(bg_color)
 
     # ── Übernahme des Ergebnisses ─────────────────────────────────────────────
 
@@ -731,10 +786,10 @@ class ResectionDialog(QDialog):
             za_res = o["za_gon"] - za_calc_gon
             t_rad = math.atan2(diff[0], diff[1])
             t_gon = _normalize_gon(_rad_to_gon(t_rad))
-            hz_res_mgon = _normalize_gon(t_gon - z0_gon - o["hz_gon"]) * 1000.0
-            # Residuum im Bereich (-200, +200) mgon normieren
-            if hz_res_mgon > 200.0:
-                hz_res_mgon -= 400.0
+            hz_res_gon = _normalize_gon(t_gon - z0_gon - o["hz_gon"])
+            if hz_res_gon > 200.0:
+                hz_res_gon -= 400.0
+            hz_res_mgon = hz_res_gon * 1000.0
             points.append({
                 'name':     o['name'],
                 'ap_x':     o['X'],
@@ -758,6 +813,7 @@ class ResectionDialog(QDialog):
             'redundancy': self._result.redundancy,
             'z0_gon':     z0_gon,
             'points':     points,
+            'ih':         _parse_float(self.input_ih.text()),  # Instrumentenhöhe
         }
 
         self.result_accepted.emit(
