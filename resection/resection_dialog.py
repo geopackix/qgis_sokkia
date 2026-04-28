@@ -332,11 +332,26 @@ class ResectionDialog(QDialog):
         active_layer = layer if layer is not None else self.mlayer
         if active_layer is None:
             return
+        # Feld-Indizes einmalig ermitteln, um KeyErrors zu vermeiden
+        flds = active_layer.fields()
+        idx_pnr = flds.indexFromName('Punktnummer')
+        idx_pnr_alt = flds.indexFromName('Punktnumme')
+        idx_hz = flds.indexFromName('mess_ha')
+        idx_za = flds.indexFromName('mess_za')
+        idx_sd = flds.indexFromName('mess_sd')
+
         for feat in active_layer.getFeatures():
-            pnr = str(feat["Punktnummer"] or "")
-            hz = feat["mess_ha"]
-            za = feat["mess_za"]
-            sd = feat["mess_sd"]
+            # Punktnummer mit Fallbacks
+            pnr_attr = None
+            if idx_pnr >= 0:
+                pnr_attr = feat.attribute(idx_pnr)
+            elif idx_pnr_alt >= 0:
+                pnr_attr = feat.attribute(idx_pnr_alt)
+            pnr = str(pnr_attr) if pnr_attr not in (None, '') else str(feat.id())
+
+            hz = feat.attribute(idx_hz) if idx_hz >= 0 else None
+            za = feat.attribute(idx_za) if idx_za >= 0 else None
+            sd = feat.attribute(idx_sd) if idx_sd >= 0 else None
             if hz is None or za is None or sd is None:
                 continue
             try:

@@ -514,10 +514,9 @@ class QGISSokkia:
                 
                 self._apply_connection_state(connected=True, initialized=True)
             
-                # Layer zur Karte hinzufügen
-                QgsProject.instance().addMapLayer(self.mlayer)
-                QgsProject.instance().addMapLayer(self.splayer)
-                QgsProject.instance().addMapLayer(self.aplayer)
+                # Layer zur Karte hinzufügen und in eine neue Gruppe verschieben
+                group_name = f"QGISSokkia-{datetime.now().strftime('%d%m%y-%H%M')}"
+                self._add_temp_layers_into_group(group_name)
                 info_text = f"Verbunden mit {port} ({baudrate} Baud)  |  CRS: {self.crsName}"
                 if device_info:
                     info_text += f"  |  {device_info}"
@@ -604,6 +603,22 @@ class QGISSokkia:
         self.aplayer.loadNamedStyle(qml_file)
         self.aplayer.dataProvider().addAttributes([attr_pkno,attr_datetime,x,y])
         self.aplayer.updateFields()  
+
+    def _add_temp_layers_into_group(self, group_name: str):
+        """Fügt die temporären Layer dem Projekt hinzu und legt sie in eine neue Layer-Gruppe.
+
+        Die Layer werden zuerst ohne Legenden-Node dem Projekt hinzugefügt und
+        anschließend in die neu angelegte Gruppe verschoben.
+        """
+        proj = QgsProject.instance()
+        root = proj.layerTreeRoot()
+        # Gruppe anlegen (wird am Ende des Layer-Baums eingefügt)
+        group = root.addGroup(group_name)
+        for layer in (self.mlayer, self.splayer, self.aplayer):
+            if layer is None:
+                continue
+            proj.addMapLayer(layer, False)
+            group.addLayer(layer)
         
     def sendPeriodicAngleMeasureCommand(self):
         while not self.serialPeriodicEvent.is_set() and self.serial.is_open:
@@ -620,9 +635,8 @@ class QGISSokkia:
         self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
         self.addApTempLayer(f"APs-{datetime.now().strftime('%d%m%y-%H%M')}")
 
-        QgsProject.instance().addMapLayer(self.mlayer)
-        QgsProject.instance().addMapLayer(self.splayer)
-        QgsProject.instance().addMapLayer(self.aplayer)
+        group_name = f"QGISSokkia-{datetime.now().strftime('%d%m%y-%H%M')}"
+        self._add_temp_layers_into_group(group_name)
 
         self._apply_connection_state(connected=False, initialized=True)
 
@@ -789,6 +803,285 @@ class QGISSokkia:
                 "Protokoll", f"Gespeichert: {filepath}  ({n_station} Stat. / {n_messung} Mess.)")
         except Exception as e:
             self.iface.messageBar().pushCritical("Protokoll-Fehler", str(e))
+
+    # -----------------------------------------------------------------
+    #  Protokoll aus bestehendem Layer
+    # -----------------------------------------------------------------
+
+    # Pflichtfelder im Messlayer – müssen vorhanden sein
+    _REQUIRED_FIELDS = [
+        'Punktnummer', 'Standpunkt', 'Recordtime',
+        'ih', 'th', 'mess_sd', 'mess_za', 'mess_ha',
+        'calc_hd', 'calc_x', 'calc_y', 'calc_z', 'prism_const',
+    ]
+
+    def _open_protokoll_from_layer_dialog(self):
+        """Öffnet einen Dialog, in dem der Benutzer einen Messlayer auswählt
+        und daraus ein Messprotokoll generiert."""
+        from qgis.PyQt.QtWidgets import (QDialog, QVBoxLayout, QLabel,
+                                          QDialogButtonBox, QComboBox, QMessageBox)
+        from qgis.core import QgsProject, QgsMapLayerProxyModel
+
+        dlg = QDialog(self.iface.mainWindow())
+        dlg.setWindowTitle('Protokoll aus Layer erstellen')
+        dlg.setMinimumWidth(400)
+        layout = QVBoxLayout(dlg)
+
+        layout.addWidget(QLabel('Messlayer auswählen:'))
+        combo = QgsMapLayerComboBox(dlg)
+        combo.setFilters(QgsMapLayerProxyModel.PointLayer)
+        layout.addWidget(combo)
+
+        lbl_status = QLabel('')
+        lbl_status.setWordWrap(True)
+        lbl_status.setStyleSheet('color:#888; font-size:10px;')
+        layout.addWidget(lbl_status)
+
+        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
+        btn_box.button(QDialogButtonBox.Ok).setText('Protokoll erstellen')
+        layout.addWidget(btn_box)
+
+        def _validate_layer():
+            layer = combo.currentLayer()
+            if layer is None:
+                lbl_status.setText('Kein Layer ausgewählt.')
+                btn_box.button(QDialogButtonBox.Ok).setEnabled(False)
+                return
+            field_names = [f.name()[:10] for f in layer.fields()]
+            required_prefixes = [f[:10] for f in self._REQUIRED_FIELDS]
+            missing = [f for f in required_prefixes if f not in field_names]
+            if missing:
+                lbl_status.setText(f'Fehlende Spalten: {", ".join(missing)}')
+                lbl_status.setStyleSheet('color:red; font-size:10px;')
+                btn_box.button(QDialogButtonBox.Ok).setEnabled(False)
+            else:
+                lbl_status.setText(f'Layer OK – {layer.featureCount()} Feature(s)')
+                lbl_status.setStyleSheet('color:green; font-size:10px;')
+                btn_box.button(QDialogButtonBox.Ok).setEnabled(True)
+
+        combo.layerChanged.connect(lambda _: _validate_layer())
+        _validate_layer()
+
+        btn_box.accepted.connect(dlg.accept)
+        btn_box.rejected.connect(dlg.reject)
+
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        layer = combo.currentLayer()
+        if layer is None:
+            return
+
+        # Speicherort abfragen
+        default_name = f"Protokoll_Layer_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        default_dir = QSettings().value('qgis_sokkia/last_protokoll_dir', os.path.expanduser('~'))
+        filepath, _ = QFileDialog.getSaveFileName(
+            self.iface.mainWindow(),
+            'Protokoll speichern',
+            os.path.join(default_dir, default_name),
+            'Textdateien (*.txt)',
+        )
+        if not filepath:
+            return
+        QSettings().setValue('qgis_sokkia/last_protokoll_dir', os.path.dirname(filepath))
+
+        try:
+            self._write_protokoll_from_layer(layer, filepath)
+            n = layer.featureCount()
+            self.iface.messageBar().pushSuccess(
+                'Protokoll', f'Gespeichert: {filepath}  ({n} Messungen)')
+        except Exception as e:
+            self.iface.messageBar().pushCritical('Protokoll-Fehler', str(e))
+
+    def _get_field_mapping(self, layer):
+        """Erstellt ein Mapping von 10-Zeichen-Präfixen zu echten Feldnamen im Layer."""
+        mapping = {}
+        field_names = [f.name() for f in layer.fields()]
+        print(f"[_get_field_mapping] Layer: {layer.name()}, Felder: {field_names}")
+        for required in self._REQUIRED_FIELDS:
+            prefix = required[:10]
+            # Finde den Feldnamen, der mit diesem Präfix beginnt
+            for fname in field_names:
+                if fname[:10] == prefix:
+                    mapping[required] = fname
+                    print(f"  {required} → {fname}")
+                    break
+        return mapping
+
+    def _parse_datetime(self, value):
+        """Konvertiert einen Datumswert zu datetime, egal welcher Typ er ist."""
+        if value is None:
+            return None
+        
+        # QDateTime
+        if hasattr(value, 'toPyDateTime'):
+            try:
+                result = value.toPyDateTime()
+                if result:
+                    return result
+            except Exception as e:
+                print(f"[_parse_datetime] QDateTime conversion failed: {e}")
+        
+        # Bereits datetime
+        if isinstance(value, datetime):
+            return value
+        
+        # String
+        if isinstance(value, str) and value.strip():
+            # Versuche verschiedene Formate
+            for fmt in ['%Y/%m/%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', 
+                       '%d.%m.%Y %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d.%m.%Y %H:%M:%S.%f']:
+                try:
+                    return datetime.strptime(value, fmt)
+                except:
+                    pass
+        
+        # Fallback: versuche str() zu konvertieren
+        try:
+            str_val = str(value).strip()
+            if str_val and str_val != 'None':
+                # Versuche ISO-Format
+                if 'T' in str_val:
+                    return datetime.fromisoformat(str_val.replace('Z', '+00:00'))
+                # Versuche verschiedene Formate mit dem String
+                for fmt in ['%Y/%m/%d %H:%M:%S.%f', '%Y-%m-%d %H:%M:%S', '%d.%m.%Y %H:%M:%S', '%Y-%m-%dT%H:%M:%S']:
+                    try:
+                        return datetime.strptime(str_val, fmt)
+                    except:
+                        pass
+        except Exception as e:
+            print(f"[_parse_datetime] String fallback failed: {e}, value={value}, type={type(value)}")
+        
+        return None
+
+    def _write_protokoll_from_layer(self, layer, filepath: str):
+        """Erstellt ein Messprotokoll aus einem vorhandenen Messlayer."""
+        SEP  = '=' * 80
+        SEP2 = '-' * 80
+
+        # Feldnamen-Mapping erstellen
+        field_map = self._get_field_mapping(layer)
+
+        def fmt(v, decimals=4):
+            try:
+                return f'{float(v):.{decimals}f}'
+            except (TypeError, ValueError):
+                return str(v) if v is not None else '—'
+
+        # Features sortiert nach Recordtime lesen
+        rt_field = field_map.get('Recordtime', 'Recordtime')
+        features = sorted(
+            layer.getFeatures(),
+            key=lambda f: self._parse_datetime(f[rt_field]) or datetime.min,
+        )
+
+        if not features:
+            raise ValueError('Keine Features im Layer vorhanden.')
+
+        # Zeitraum ermitteln
+        times = []
+        for feat in features:
+            dt = self._parse_datetime(feat[rt_field])
+            if dt:
+                times.append(dt)
+        time_min = min(times) if times else None
+        time_max = max(times) if times else None
+
+        # CRS
+        crs_name = layer.crs().authid() if layer.crs().isValid() else '?'
+
+        # Messungen nach Standpunkt gruppieren
+        sp_field = field_map.get('Standpunkt', 'Standpunkt')
+        stations = []  # [(standpunkt_name, [features])]
+        current_sp = None
+        current_group = []
+        for feat in features:
+            sp = feat[sp_field] or '?'
+            if sp != current_sp:
+                if current_group:
+                    stations.append((current_sp, current_group))
+                current_sp = sp
+                current_group = [feat]
+            else:
+                current_group.append(feat)
+        if current_group:
+            stations.append((current_sp, current_group))
+
+        n_station = len(stations)
+        n_messung = len(features)
+
+        # Feldnamen-Shortcuts
+        pkt_field = field_map.get('Punktnummer', 'Punktnummer')
+        ih_field = field_map.get('ih', 'ih')
+        th_field = field_map.get('th', 'th')
+        sd_field = field_map.get('mess_sd', 'mess_sd')
+        za_field = field_map.get('mess_za', 'mess_za')
+        ha_field = field_map.get('mess_ha', 'mess_ha')
+        hd_field = field_map.get('calc_hd', 'calc_hd')
+        x_field = field_map.get('calc_x', 'calc_x')
+        y_field = field_map.get('calc_y', 'calc_y')
+        z_field = field_map.get('calc_z', 'calc_z')
+        pc_field = field_map.get('prism_const', 'prism_const')
+
+        # Protokoll schreiben
+        lines = []
+        lines.append(SEP)
+        lines.append('  QGIS Sokkia Plugin  —  Messprotokoll (aus Layer)')
+        lines.append(SEP)
+        lines.append(f"  Erstellt am      : {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
+        lines.append(f"  Quell-Layer      : {layer.name()}")
+        lines.append(f"  Koordinaten      : {crs_name}")
+        if time_min and time_max:
+            lines.append(f"  Messdatum        : {time_min.strftime('%d.%m.%Y')}"
+                         + (f" bis {time_max.strftime('%d.%m.%Y')}" if time_min.date() != time_max.date() else ''))
+            lines.append(f"  Messzeitraum     : {time_min.strftime('%H:%M:%S')} — {time_max.strftime('%H:%M:%S')}")
+        lines.append(SEP)
+        lines.append('')
+        lines.append(f'  Stationierungen: {n_station}    Messungen: {n_messung}')
+        lines.append('')
+
+        messung_nr = 0
+        for station_idx, (sp_name, sp_features) in enumerate(stations, start=1):
+            first = sp_features[0]
+            ih = first[ih_field]
+            lines.append(SEP2)
+            lines.append(f'STATIONIERUNG #{station_idx}')
+            lines.append(f"  Standpunkt-Nr.    : {sp_name}")
+            lines.append(f"  Instrumentenhöhe  : {fmt(ih)} m")
+            # Zeitstempel der Station (erster Messpunkt)
+            rt = self._parse_datetime(first[rt_field])
+            if rt:
+                lines.append(f"  Erster Messpunkt  : {rt.strftime('%d.%m.%Y %H:%M:%S')}")
+            lines.append('')
+
+            for feat in sp_features:
+                messung_nr += 1
+                dt = self._parse_datetime(feat[rt_field])
+                if not dt:
+                    # Debug-Info: was ist im Feld?
+                    val = feat.get(rt_field) if hasattr(feat, 'get') else feat[rt_field]
+                    print(f"[Protokoll] Messung #{messung_nr}: rt_field='{rt_field}', value='{val}', type={type(val)}")
+                t_str = dt.strftime('%H:%M:%S') if dt else '??:??:??'
+                pkt_id = feat[pkt_field] or '?'
+                lines.append(f"[{t_str}] Messung #{messung_nr}  —  Pkt: {pkt_id}")
+                lines.append(f"  Standpunkt        : {sp_name}")
+                lines.append(f"  Hz (orientiert)   : {fmt(feat[ha_field])} gon")
+                lines.append(f"  ZA (Zenitwinkel)  : {fmt(feat[za_field])} gon")
+                lines.append(f"  SD (Schrägdistanz): {fmt(feat[sd_field])} m")
+                lines.append(f"  HD (Horizontaldist): {fmt(feat[hd_field])} m")
+                lines.append(f"  Zielh. (th)       : {fmt(feat[th_field])} m")
+                lines.append(f"  Prismenkonstante  : {fmt(feat[pc_field], 1)} mm")
+                lines.append(f"  Ber. X (Rechts)   : {fmt(feat[x_field])} m")
+                lines.append(f"  Ber. Y (Hoch)     : {fmt(feat[y_field])} m")
+                lines.append(f"  Ber. Z (Höhe)     : {fmt(feat[z_field])} m")
+                lines.append('')
+
+        lines.append(SEP)
+        lines.append(f'  Ende des Protokolls  —  {n_station} Stationierung(en)  /  {n_messung} Messung(en)')
+        lines.append(SEP)
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
 
     def _close_serial(self):
         """Gibt die serielle Schnittstelle sicher frei (Thread-sicher, idempotent)."""
@@ -1641,6 +1934,7 @@ class QGISSokkia:
             #Koordinaten-Transfer
             self.dockwidget.btn_transfer.clicked.connect(self.open_transfer_dialog)
             self.dockwidget.btn_export_protokoll.clicked.connect(self.export_protokoll)
+            self.dockwidget.btn_protokoll_from_layer.clicked.connect(self._open_protokoll_from_layer_dialog)
             # Linienabstand: nur Linienlayer anzeigen
             self.dockwidget.combo_line_layer.setFilters(QgsMapLayerProxyModel.LineLayer)
             self.dockwidget.combo_line_layer.layerChanged.connect(self._connect_line_layer_signals)
