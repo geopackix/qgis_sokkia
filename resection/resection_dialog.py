@@ -35,6 +35,7 @@ from qgis.core import (
 # Sicherstellen, dass das resection-Modul importierbar ist
 sys.path.insert(0, os.path.dirname(__file__))
 from resection import resection  # noqa: E402
+from resection_extended import resection_extended  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -205,7 +206,7 @@ class ResectionDialog(QDialog):
         btn_row.addWidget(btn_refresh)
         al.addLayout(btn_row)
 
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels([
             "Messung (Pkt.Nr.)",
             "Hz [gon]",
@@ -213,15 +214,18 @@ class ResectionDialog(QDialog):
             "SD [m]",
             "Anschlusspunkt",
             "Bekannte Koordinaten",
+            "th [m]",
         ])
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(0, QHeaderView.Stretch)
         hdr.setSectionResizeMode(4, QHeaderView.Stretch)
         hdr.setSectionResizeMode(5, QHeaderView.Stretch)
-        for col in (1, 2, 3):
+        for col in (1, 2, 3, 6):
             hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setMinimumHeight(150)
+        # Spalte 'th [m]' nur im Modus 'Erweitert' sichtbar
+        self.table.setColumnHidden(6, True)
         al.addWidget(self.table)
 
         main.addWidget(grp_assign)
@@ -238,6 +242,89 @@ class ResectionDialog(QDialog):
         ih_row.addWidget(QLabel("m"))
         ih_row.addStretch()
         main.addLayout(ih_row)
+
+        # ── 2c. Berechnungsmodus (Standard / Erweitert) ───────────────────────
+        mode_row = QHBoxLayout()
+        mode_row.addStretch()
+        mode_row.addWidget(QLabel("Berechnungsmodus:"))
+        self.mode_combo = QComboBox()
+        self.mode_combo.addItem("Standard (klassisch)", "standard")
+        self.mode_combo.addItem("Erweitert (konform)", "extended")
+        self.mode_combo.setToolTip(
+            "Standard: bisheriger Algorithmus ohne ih/th, ohne Refraktion.\n"
+            "Erweitert: konformes   Modell mit Instrumenten-/Reflektor-"
+            "höhe, Refraktion + Erdkrümmung, optional Maßstab/Add für Strecken."
+        )
+        self.mode_combo.currentIndexChanged.connect(self._on_mode_changed)
+        mode_row.addWidget(self.mode_combo)
+        mode_row.addStretch()
+        main.addLayout(mode_row)
+
+        # ── 2d. Erweiterte Parameter (nur im Modus 'Erweitert' sichtbar) ──────
+        self.grp_extended = QGroupBox("Erweiterte Parameter (Stufen 1–3)")
+        ex_layout = QVBoxLayout(self.grp_extended)
+
+        # Refraktion / Erdradius
+        ref_row = QHBoxLayout()
+        ref_row.addWidget(QLabel("Refraktionskoeff. k:"))
+        self.input_k = QLineEdit("0.13")
+        self.input_k.setMaximumWidth(70)
+        ref_row.addWidget(self.input_k)
+        self.chk_earth_curv = QCheckBox("Erdkrümmung berücksichtigen")
+        self.chk_earth_curv.setChecked(True)
+        ref_row.addWidget(self.chk_earth_curv)
+        ref_row.addSpacing(20)
+        ref_row.addWidget(QLabel("Erdradius R [m]:"))
+        self.input_R = QLineEdit("6378137")
+        self.input_R.setMaximumWidth(110)
+        ref_row.addWidget(self.input_R)
+        ref_row.addStretch()
+        ex_layout.addLayout(ref_row)
+
+        # A-priori-Sigmen
+        sig_row = QHBoxLayout()
+        sig_row.addWidget(QLabel("σ SD [m]:"))
+        self.input_sigma_sd = QLineEdit("0.005")
+        self.input_sigma_sd.setMaximumWidth(70)
+        sig_row.addWidget(self.input_sigma_sd)
+        sig_row.addSpacing(10)
+        sig_row.addWidget(QLabel("σ Hz [mgon]:"))
+        self.input_sigma_hz = QLineEdit("1.0")
+        self.input_sigma_hz.setMaximumWidth(70)
+        sig_row.addWidget(self.input_sigma_hz)
+        sig_row.addSpacing(10)
+        sig_row.addWidget(QLabel("σ ZA [mgon]:"))
+        self.input_sigma_za = QLineEdit("1.0")
+        self.input_sigma_za.setMaximumWidth(70)
+        sig_row.addWidget(self.input_sigma_za)
+        sig_row.addStretch()
+        ex_layout.addLayout(sig_row)
+
+        # Maßstab / Additionskonstante schätzen
+        sa_row = QHBoxLayout()
+        self.chk_estimate_scale = QCheckBox("Maßstab (SD) mitschätzen")
+        self.chk_estimate_scale.setToolTip(
+            "Schätzt einen gemeinsamen Maßstabsfaktor für alle "
+            "Schrägstrecken als zusätzliche Unbekannte.")
+        self.chk_estimate_add = QCheckBox("Additionskonstante (SD) mitschätzen")
+        self.chk_estimate_add.setToolTip(
+            "Schätzt eine Additionskonstante für alle Schrägstrecken als "
+            "zusätzliche Unbekannte.")
+        sa_row.addWidget(self.chk_estimate_scale)
+        sa_row.addWidget(self.chk_estimate_add)
+        sa_row.addStretch()
+        ex_layout.addLayout(sa_row)
+
+        info = QLabel(
+            "Hinweis: Reflektorhöhen th werden je Zeile in der Spalte "
+            "'th [m]' der Zuordnungstabelle eingetragen."
+        )
+        info.setStyleSheet("color: #555; font-style: italic;")
+        info.setWordWrap(True)
+        ex_layout.addWidget(info)
+
+        self.grp_extended.setVisible(False)
+        main.addWidget(self.grp_extended)
 
         # ── 3. Berechnen-Button ───────────────────────────────────────────────
         self.btn_calc = QPushButton("  Rückwärtsschnitt berechnen  ")
@@ -348,7 +435,65 @@ class ResectionDialog(QDialog):
     def _on_layer_changed(self, layer):
         for fld_combo in (self.field_id, self.field_x, self.field_y, self.field_z):
             fld_combo.setLayer(layer)
+        self._auto_select_fields(layer)
         self._refresh_ap_combos()
+
+    def _auto_select_fields(self, layer):
+        """Versucht, bekannte Plugin-Feldnamen automatisch vorzubelegen.
+
+        Erkannte Muster (AP-Layer / Mess-Layer des Plugins):
+          - ID: 'Punktnummer' oder 'Punktnumme'
+          - X:  'x' oder 'calc_x'
+          - Y:  'y' oder 'calc_y'
+          - Z:  'z' oder 'calc_z'
+        Wenn X/Y aus der Geometrie kommen sollen ($x/$y), werden die
+        Checkboxen aktiviert.
+        """
+        if layer is None:
+            return
+        field_names = [f.name() for f in layer.fields()]
+
+        # --- ID-Feld ---
+        for candidate in ('Punktnummer', 'Punktnumme'):
+            if candidate in field_names:
+                idx = self.field_id.findText(candidate)
+                if idx >= 0:
+                    self.field_id.setCurrentIndex(idx)
+                break
+
+        # --- X-Feld ---
+        x_set = False
+        for candidate in ('x', 'calc_x'):
+            if candidate in field_names:
+                idx = self.field_x.findText(candidate)
+                if idx >= 0:
+                    self.field_x.setCurrentIndex(idx)
+                    self.chk_geom_x.setChecked(False)
+                    x_set = True
+                break
+        if not x_set and layer.geometryType() == QgsWkbTypes.PointGeometry:
+            self.chk_geom_x.setChecked(True)
+
+        # --- Y-Feld ---
+        y_set = False
+        for candidate in ('y', 'calc_y'):
+            if candidate in field_names:
+                idx = self.field_y.findText(candidate)
+                if idx >= 0:
+                    self.field_y.setCurrentIndex(idx)
+                    self.chk_geom_y.setChecked(False)
+                    y_set = True
+                break
+        if not y_set and layer.geometryType() == QgsWkbTypes.PointGeometry:
+            self.chk_geom_y.setChecked(True)
+
+        # --- Z-Feld ---
+        for candidate in ('z', 'calc_z'):
+            if candidate in field_names:
+                idx = self.field_z.findText(candidate)
+                if idx >= 0:
+                    self.field_z.setCurrentIndex(idx)
+                break
 
     def _load_measurements(self, layer=None):
         """Lädt alle Messungen aus dem angegebenen bzw. Standard-Messlayer."""
@@ -463,6 +608,11 @@ class ResectionDialog(QDialog):
         coord_item = QTableWidgetItem("—")
         coord_item.setFlags(coord_item.flags() & ~Qt.ItemIsEditable)
         self.table.setItem(row, 5, coord_item)
+
+        # Spalte 6: Reflektorhöhe th [m] (editierbar, nur im Modus 'Erweitert')
+        th_item = QTableWidgetItem("0.000")
+        th_item.setTextAlignment(Qt.AlignCenter)
+        self.table.setItem(row, 6, th_item)
 
     def _remove_row(self):
         row = self.table.currentRow()
@@ -600,8 +750,27 @@ class ResectionDialog(QDialog):
                 "hz_gon": m["hz"],
                 "za_gon": m["za"],
                 "sd_m": m["sd"],
+                "th_m": self._read_th_for_row(row),
             })
         return observations
+
+    def _read_th_for_row(self, row):
+        """Liest die Reflektorhöhe (th) aus Spalte 6. 0.0 wenn leer/ungültig."""
+        item = self.table.item(row, 6)
+        if item is None:
+            return 0.0
+        try:
+            return _parse_float(item.text())
+        except (ValueError, TypeError):
+            return 0.0
+
+    # ── Modus-Umschaltung ─────────────────────────────────────────────────────
+
+    def _on_mode_changed(self, _idx):
+        is_extended = self.mode_combo.currentData() == "extended"
+        self.grp_extended.setVisible(is_extended)
+        # Spalte 'th [m]' nur im erweiterten Modus zeigen
+        self.table.setColumnHidden(6, not is_extended)
 
     # ── Berechnung ────────────────────────────────────────────────────────────
 
@@ -642,16 +811,62 @@ class ResectionDialog(QDialog):
         # Hz-Werte auf [0, 400) normieren (Tachymeter kann > 400 gon liefern)
         hz_angles = np.array([_gon_to_rad(o["hz_gon"] % 400.0) for o in obs])
 
-        # Resektionsberechnung (SD + Hz + ZA im Ausgleich, gleiche Gewichte)
-        # Gleiche Gewichte sind robust bei heterogener Datenqualität und
-        # vermeiden Übergewichtung fehlerhafter Winkelbeobachtungen.
+        # Resektionsberechnung – Modus auswerten
+        # Standard: bisheriger Algorithmus, Höhenwinkel-Modell, gleiche Gewichte.
+        # Erweitert: konformes Modell mit ih/th, Refraktion, optional
+        # Maßstab/Add für SD und a-priori-Sigmen pro Beobachtungstyp.
+        mode = self.mode_combo.currentData() if hasattr(self, "mode_combo") else "standard"
         try:
-            result = resection(
-                observed_points,
-                measured_slant_distances=slant_distances,
-                measured_v_angles=v_angles,
-                measured_hz_angles=hz_angles,
-            )
+            if mode == "extended":
+                # Reflektorhöhen aus Tabelle, Instrumentenhöhe aus Eingabefeld
+                target_heights = np.array([o["th_m"] for o in obs])
+                try:
+                    ih_val = _parse_float(self.input_ih.text())
+                except ValueError:
+                    ih_val = 0.0
+
+                try:
+                    k_val = _parse_float(self.input_k.text())
+                    R_val = _parse_float(self.input_R.text())
+                    sigma_sd = _parse_float(self.input_sigma_sd.text())
+                    sigma_hz_mgon = _parse_float(self.input_sigma_hz.text())
+                    sigma_za_mgon = _parse_float(self.input_sigma_za.text())
+                except ValueError as ex:
+                    QMessageBox.warning(
+                        self, "Eingabefehler",
+                        f"Erweiterte Parameter ungültig:\n{ex}")
+                    return
+                # mgon → rad
+                sigma_hz_rad = _gon_to_rad(sigma_hz_mgon / 1000.0)
+                sigma_za_rad = _gon_to_rad(sigma_za_mgon / 1000.0)
+
+                # Zenitwinkel als ZA (rad), nicht als Höhenwinkel
+                zenith_rad = np.array([_gon_to_rad(o["za_gon"]) for o in obs])
+
+                result = resection_extended(
+                    observed_points,
+                    measured_slant_distances=slant_distances,
+                    measured_hz_angles=hz_angles,
+                    measured_zenith_angles=zenith_rad,
+                    instrument_height=ih_val,
+                    target_heights=target_heights,
+                    refraction_coefficient=k_val,
+                    apply_earth_curvature=self.chk_earth_curv.isChecked(),
+                    earth_radius=R_val,
+                    sigma_sd=max(sigma_sd, 1e-9),
+                    sigma_hz=max(sigma_hz_rad, 1e-12),
+                    sigma_za=max(sigma_za_rad, 1e-12),
+                    estimate_scale_sd=self.chk_estimate_scale.isChecked(),
+                    estimate_add_sd=self.chk_estimate_add.isChecked(),
+                    obs_labels=[o["name"] for o in obs],
+                )
+            else:
+                result = resection(
+                    observed_points,
+                    measured_slant_distances=slant_distances,
+                    measured_v_angles=v_angles,
+                    measured_hz_angles=hz_angles,
+                )
         except Exception as e:
             QMessageBox.critical(
                 self, "Berechnungsfehler",

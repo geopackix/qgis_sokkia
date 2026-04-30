@@ -41,6 +41,7 @@ from .standort_dialog import StandortDialog
 from .zielpunkt_dialog import ZielpunktDialog
 from .fernsteuerung_dialog import FernsteuerungDialog
 from .absteckung_dialog import AbsteckungDialog
+from .kanalmessstab_dialog import KanalmessstabDialog
 
 # Initialize Qt resources from file resources.py
 from .resources import *
@@ -202,9 +203,9 @@ class QGISSokkia:
         self._zielpunkt_dlg = None
         self._fernsteuerung_dlg = None
         self._absteckung_dlg = None
+        self._kanalmessstab_dlg = None
         
         self.serial = None
-        
         
         #Threads
         self.serialStopEvent = threading.Event()
@@ -221,6 +222,7 @@ class QGISSokkia:
         self.crsName = "EPSG:25832"
         self.orientation = 0
         self.orientationArrow = OrientationArrow(self.crsName)
+        self._layer_group = None  # aktuelle Layer-Gruppe im Layerbaum
         self._direction_rubber_band = None  # Live-Richtungslinie auf der Karte
         
         
@@ -231,6 +233,9 @@ class QGISSokkia:
         self.mlayer = None
         self.splayer = None
         self.aplayer = None
+        self.hmlayer = None         # HilfsMesspunkte (Kanalmessstab-Prismen)
+        self.kanal_line_layer = None  # KanalmessstabLinien (Visualisierung)
+        self._kanal_rubber_band = None  # Live-Rubberband während Dialog offen
         self._measure_queue = queue.Queue()
         self._transfer_mode = False
         self._protokoll = []          # Protokolleinträge dieser Sitzung
@@ -523,6 +528,8 @@ class QGISSokkia:
                 self.addTempLayer(f"Messungen-{datetime.now().strftime('%d%m%y-%H%M')}")
                 self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
                 self.addApTempLayer(f"APs-{datetime.now().strftime('%d%m%y-%H%M')}")
+                self.addHmTempLayer(f"HilfsMesspunkte-{datetime.now().strftime('%d%m%y-%H%M')}")
+                self.addKanalLineLayer(f"KanalmessstabLinien-{datetime.now().strftime('%d%m%y-%H%M')}")
                 
                 self._apply_connection_state(connected=True, initialized=True)
             
@@ -631,6 +638,41 @@ class QGISSokkia:
         ])
         self.aplayer.updateFields()  
 
+    def addHmTempLayer(self, name):
+        """Layer für Hilfsmesspunkte (z.B. die zwei Prismen am Kanalmessstab)."""
+        self.hmlayer = QgsVectorLayer("PointZ?crs=" + self.crsName, name, "memory")
+
+        attr_pkno = QgsField('Punktnummer', QVariant.String)
+        attr_sp = QgsField('Standpunkt', QVariant.String)
+        attr_datetime = QgsField('Recordtime', QVariant.DateTime)
+        attr_typ = QgsField('Typ', QVariant.String)         # 'P1' / 'P2' / ...
+        attr_zugehoerig = QgsField('Zielpunkt', QVariant.String)
+        x = QgsField('x', QVariant.Double)
+        y = QgsField('y', QVariant.Double)
+        z = QgsField('z', QVariant.Double)
+        sd = QgsField('mess_sd', QVariant.Double)
+        za = QgsField('mess_za', QVariant.Double)
+        ha = QgsField('mess_ha', QVariant.Double)
+
+        self.hmlayer.dataProvider().addAttributes([
+            attr_pkno, attr_sp, attr_datetime, attr_typ, attr_zugehoerig,
+            x, y, z, sd, za, ha,
+        ])
+        self.hmlayer.updateFields()
+
+    def addKanalLineLayer(self, name):
+        """Linienlayer für die Visualisierung des Kanalmessstabs (P1 → P2 → Ziel)."""
+        self.kanal_line_layer = QgsVectorLayer(
+            "LineStringZ?crs=" + self.crsName, name, "memory")
+        attr_pkno = QgsField('Zielpunkt', QVariant.String)
+        attr_datetime = QgsField('Recordtime', QVariant.DateTime)
+        attr_dist12 = QgsField('dist_P1P2', QVariant.Double)
+        attr_dtip = QgsField('dist_Tip', QVariant.Double)
+        self.kanal_line_layer.dataProvider().addAttributes([
+            attr_pkno, attr_datetime, attr_dist12, attr_dtip,
+        ])
+        self.kanal_line_layer.updateFields()
+
     def _add_temp_layers_into_group(self, group_name: str):
         """Fügt die temporären Layer dem Projekt hinzu und legt sie in eine neue Layer-Gruppe.
 
@@ -641,12 +683,31 @@ class QGISSokkia:
         root = proj.layerTreeRoot()
         # Gruppe anlegen (wird am Ende des Layer-Baums eingefügt)
         group = root.addGroup(group_name)
-        for layer in (self.mlayer, self.splayer, self.aplayer):
+        self._layer_group = group
+        for layer in (self.mlayer, self.splayer, self.aplayer,
+                      self.hmlayer, self.kanal_line_layer):
             if layer is None:
                 continue
             proj.addMapLayer(layer, False)
             group.addLayer(layer)
-        
+
+    def _add_orientation_layer_to_group(self):
+        """Fügt den Orientierungslayer in die aktuelle Layer-Gruppe ein.
+
+        Falls keine Gruppe existiert, wird der Layer wie bisher direkt
+        ins Projekt eingefügt (Fallback).
+        """
+        layer = self.orientationArrow.layer
+        proj = QgsProject.instance()
+        # Prüfe ob Layer bereits im Projekt registriert ist
+        if proj.mapLayer(layer.id()) is not None:
+            return
+        if self._layer_group is not None:
+            proj.addMapLayer(layer, False)
+            self._layer_group.addLayer(layer)
+        else:
+            proj.addMapLayer(layer)
+
     def sendPeriodicAngleMeasureCommand(self):
         while not self.serialPeriodicEvent.is_set() and self.serial.is_open:
             command = bytes([0x13])
@@ -661,6 +722,8 @@ class QGISSokkia:
         self.addTempLayer(f"Messungen-{datetime.now().strftime('%d%m%y-%H%M')}")
         self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
         self.addApTempLayer(f"APs-{datetime.now().strftime('%d%m%y-%H%M')}")
+        self.addHmTempLayer(f"HilfsMesspunkte-{datetime.now().strftime('%d%m%y-%H%M')}")
+        self.addKanalLineLayer(f"KanalmessstabLinien-{datetime.now().strftime('%d%m%y-%H%M')}")
 
         group_name = f"QGISSokkia-{datetime.now().strftime('%d%m%y-%H%M')}"
         self._add_temp_layers_into_group(group_name)
@@ -1209,7 +1272,20 @@ class QGISSokkia:
                 self.measureValues['za'] = za
                 if item['is_distance']:
                     self.measureValues['sd'] = sd
-                    self.addMPoint(sd, za, ha)
+                    # Wenn der Kanalmessstab-Dialog auf eine Messung wartet,
+                    # leiten wir die nächste Distanz dorthin um, statt einen
+                    # Punkt im Mess-Layer zu speichern.
+                    if (self._kanalmessstab_dlg is not None
+                            and self._kanalmessstab_dlg.isVisible()
+                            and self._kanalmessstab_dlg.is_capturing()):
+                        try:
+                            x_p, y_p, z_p = self._kanal_compute_xyz(sd, za, ha)
+                            self._kanalmessstab_dlg.consume_measurement(
+                                x_p, y_p, z_p, sd, za, ha)
+                        except Exception as ke:
+                            print(f"[Kanal] consume_measurement: {ke}")
+                    else:
+                        self.addMPoint(sd, za, ha)
                 if self.dockwidget:
                     self.dockwidget.lbl_ha.setText(f"HZ: {self.measureValues['ha']:.4f} gon")
                     self.dockwidget.lbl_za.setText(f"VZ: {self.measureValues['za']:.4f} gon")
@@ -1611,7 +1687,7 @@ class QGISSokkia:
         self.ap = {"ID": ap_name, "RECHTS": ap_x, "HOCH": ap_y}
         self.addAp()
         self.orientationArrow.addFeature(sp_x, sp_y, ap_x, ap_y)
-        self.orientationArrow.addLayerToMapInstance()
+        self._add_orientation_layer_to_group()
 
     def set_orientation_zero(self):
         """Setzt die Orientierung auf 0 gon (z₀ = 0)."""
@@ -1769,6 +1845,7 @@ class QGISSokkia:
         status_text = f"Zieltyp: {targetType}  |  th: {float(self._zielpunkt_dlg.input_th.text()):.3f} m  |  PK: {self.targetPrismConstant}"
         self.dockwidget.lbl_target.setText(status_text)
         self._zielpunkt_dlg.lbl_target_dialog.setText(status_text)
+        self._update_target_display(targetType, self.targetPrismConstant, is_set=True)
         self._zielpunkt_dlg.hide()
         
         
@@ -1852,6 +1929,280 @@ class QGISSokkia:
         self._absteckung_dlg.raise_()
         self._absteckung_dlg.activateWindow()
 
+    def open_kanalmessstab_dialog(self):
+        """Kanalmessstab-Dialog anzeigen (zwei Prismen am Stab → Zielpunkt
+        in Verlängerung berechnen)."""
+        # Lazy create + Hilfsmesspunkte-Layer sicherstellen
+        if self.hmlayer is None:
+            self.addHmTempLayer(
+                f"HilfsMesspunkte-{datetime.now().strftime('%d%m%y-%H%M')}")
+            if self._layer_group is not None:
+                QgsProject.instance().addMapLayer(self.hmlayer, False)
+                self._layer_group.addLayer(self.hmlayer)
+            else:
+                QgsProject.instance().addMapLayer(self.hmlayer)
+        if self.kanal_line_layer is None:
+            self.addKanalLineLayer(
+                f"KanalmessstabLinien-{datetime.now().strftime('%d%m%y-%H%M')}")
+            if self._layer_group is not None:
+                QgsProject.instance().addMapLayer(self.kanal_line_layer, False)
+                self._layer_group.addLayer(self.kanal_line_layer)
+            else:
+                QgsProject.instance().addMapLayer(self.kanal_line_layer)
+
+        if self._kanalmessstab_dlg is None:
+            self._kanalmessstab_dlg = KanalmessstabDialog(
+                parent=self.iface.mainWindow())
+            self._kanalmessstab_dlg.request_measurement.connect(self.mesaure)
+            self._kanalmessstab_dlg.request_target_settings.connect(
+                self._open_target_settings_modal)
+            self._kanalmessstab_dlg.save_helper.connect(
+                self._kanal_save_helper)
+            self._kanalmessstab_dlg.save_target.connect(
+                self._kanal_save_target)
+            self._kanalmessstab_dlg.rod_visualization.connect(
+                self._kanal_update_rubber_band)
+
+        # Punkt-Nr. aus Zielpunkt-Dialog vorausfüllen, falls vorhanden
+        if self._zielpunkt_dlg is not None:
+            try:
+                pid = self._zielpunkt_dlg.input_targetid.text().strip()
+                if pid:
+                    self._kanalmessstab_dlg.input_pid.setText(pid)
+            except Exception:
+                pass
+
+        # Aktuellen Zieltyp anzeigen
+        self._refresh_target_status_in_kanalmessstab()
+
+        self._kanalmessstab_dlg.show()
+        self._kanalmessstab_dlg.raise_()
+        self._kanalmessstab_dlg.activateWindow()
+
+    def _refresh_target_status_in_kanalmessstab(self):
+        """Übergibt den aktuell gesetzten Zieltyp an den Kanalmessstab-Dialog."""
+        if self._kanalmessstab_dlg is None:
+            return
+        # Aus Dock-Badge auslesen ist unzuverlässig → aus Plugin-Status
+        target_map = {0: 'Prisma', 1: 'Reflexfolie', 2: 'Reflektorlos'}
+        ttype = target_map.get(self.target, '')
+        # Wenn der Benutzer noch nie 'Ziel setzen' gedrückt hat, ist das
+        # Ziel nicht aktiv übertragen → wir prüfen am Dock-Label
+        is_set = True
+        try:
+            if self.dockwidget.lbl_target.text().startswith("Ziel noch nicht"):
+                is_set = False
+        except Exception:
+            pass
+        self._kanalmessstab_dlg.update_target_status(
+            ttype, self.targetPrismConstant if is_set else None,
+            is_set=is_set)
+
+    def _open_target_settings_modal(self):
+        """Öffnet den Zielpunkt-Dialog modal aus dem Kanalmessstab-Dialog."""
+        if self._zielpunkt_dlg is None:
+            self._zielpunkt_dlg = ZielpunktDialog(parent=self.iface.mainWindow())
+            self._zielpunkt_dlg.btn_setTarget.clicked.connect(self.setTarget)
+            self._zielpunkt_dlg.radio_prism.clicked.connect(self.selectTarget)
+            self._zielpunkt_dlg.radio_reflex.clicked.connect(self.selectTarget)
+            self._zielpunkt_dlg.radio_reflectorless.clicked.connect(self.selectTarget)
+        # Modal über dem Kanalmessstab-Dialog öffnen
+        self._zielpunkt_dlg.setModal(True)
+        self._zielpunkt_dlg.exec_()
+        self._zielpunkt_dlg.setModal(False)
+        # Nach Schließen: Status aktualisieren
+        self._refresh_target_status_in_kanalmessstab()
+
+    # ── Zieltyp-Anzeige ─────────────────────────────────────────────────────
+
+    def _update_target_display(self, target_type: str, prism_constant=None,
+                               is_set: bool = True):
+        """Aktualisiert sichtbare Zieltyp-Anzeigen (Dock-Badge + offene
+        Subdialoge wie der Kanalmessstab-Dialog).
+        """
+        # Großes Badge in der Dock-Live-Ansicht
+        if self.dockwidget is not None and hasattr(self.dockwidget, 'lbl_target_badge'):
+            badge = self.dockwidget.lbl_target_badge
+            if not is_set or not target_type:
+                badge.setText("🎯 Ziel: noch nicht gesetzt")
+                badge.setStyleSheet(
+                    "font-size:12px;font-weight:bold;padding:5px 8px;"
+                    "background:#ffebee;color:#b71c1c;"
+                    "border:1px solid #e57373;border-radius:4px;")
+            else:
+                tt_low = target_type.lower()
+                if tt_low.startswith("prism"):
+                    bg, fg, bd, icon = "#e3f2fd", "#0d47a1", "#64b5f6", "🔵"
+                elif tt_low.startswith("refl") and "los" in tt_low:
+                    bg, fg, bd, icon = "#fff3e0", "#e65100", "#ffb74d", "🟠"
+                else:
+                    bg, fg, bd, icon = "#e8f5e9", "#1b5e20", "#81c784", "🟢"
+                pk_txt = ""
+                if prism_constant is not None:
+                    pk_txt = f"   |   PK: {prism_constant} mm"
+                badge.setText(f"{icon}  Ziel: {target_type}{pk_txt}")
+                badge.setStyleSheet(
+                    f"font-size:12px;font-weight:bold;padding:5px 8px;"
+                    f"background:{bg};color:{fg};"
+                    f"border:1px solid {bd};border-radius:4px;")
+        # An offene Sub-Dialoge weiterreichen
+        if self._kanalmessstab_dlg is not None:
+            try:
+                self._kanalmessstab_dlg.update_target_status(
+                    target_type, prism_constant, is_set=is_set)
+            except Exception:
+                pass
+
+    # ── Kanalmessstab-Hilfsmethoden ─────────────────────────────────────────
+
+    def _kanal_compute_xyz(self, sd: float, za: float, ha: float):
+        """Rechnet aus einer Tachymeter-Messung die 3D-Koordinaten des
+        Prismas (ohne Zielhöhenkorrektur, denn das Prisma sitzt am Stab –
+        die Stab-Ausgleichung erfolgt im Dialog).
+
+        Hinweis: Da die Höhe des Prismas am Stab als 'th' nicht eindeutig
+        ist (zwei Prismen mit unterschiedlicher Höhe), wird hier th = 0
+        verwendet. Der Stab-Vektor wird aus den beiden 3D-Punkten gebildet.
+        """
+        ha_oriented = (ha + self.orientation * 200.0 / math.pi) % 400
+        za_rad = za * math.pi / 200.0
+        ha_rad = ha_oriented * math.pi / 200.0
+        hd = sd * math.sin(za_rad)
+        x = self.sp['RECHTS'] + hd * math.sin(ha_rad)
+        y = self.sp['HOCH'] + hd * math.cos(ha_rad)
+        z = self.sp['H'] + self.sp['ih'] + sd * math.cos(za_rad)
+        return x, y, z
+
+    def _kanal_save_helper(self, label, x, y, z, sd, za, ha):
+        """Speichert ein Prisma als Hilfsmesspunkt im hmlayer."""
+        if self.hmlayer is None:
+            return
+        try:
+            typ = 'P1' if label.endswith('_P1') else (
+                  'P2' if label.endswith('_P2') else 'PX')
+            zugeh = label.rsplit('_', 1)[0] if '_' in label else ''
+            geom = QgsGeometry(QgsPoint(x, y, z))
+            feat = QgsFeature(self.hmlayer.fields())
+            feat.setGeometry(geom)
+            feat.setAttributes([
+                label, self.sp['ID'], QDateTime.currentDateTime(),
+                typ, zugeh, x, y, z, sd, za, ha,
+            ])
+            self.hmlayer.dataProvider().addFeature(feat)
+            self.hmlayer.updateExtents()
+            self.hmlayer.triggerRepaint()
+            self._protokoll_add('KANALMESSSTAB-HILFSPUNKT', '')
+            self._protokoll[-1]['data'] = {
+                'id': label, 'typ': typ, 'zielpunkt': zugeh,
+                'sd': sd, 'za': za, 'ha': ha,
+                'x': x, 'y': y, 'z': z,
+            }
+            self._autosave_protokoll()
+        except Exception as e:
+            print(f"[Kanal] Hilfspunkt nicht gespeichert: {e}")
+
+    def _kanal_save_target(self, targetid, x, y, z,
+                           p1, p2, dist12, d_tip):
+        """Speichert den berechneten Zielpunkt im mlayer und legt eine
+        Stab-Linie (P1 → P2 → T) im Linienlayer an."""
+        if self.mlayer is None:
+            self.iface.messageBar().pushWarning(
+                "Kanalmessstab",
+                "Mess-Layer nicht initialisiert – Zielpunkt nicht gespeichert.")
+            return
+        try:
+            # Zielpunkt im normalen Mess-Layer ablegen
+            point = QgsPointXY(x, y)
+            feat = QgsFeature(self.mlayer.fields())
+            feat.setGeometry(QgsGeometry.fromPointXY(point))
+            # Felder analog addMPoint, jedoch ohne SD/HA/ZA-Originalwerte
+            feat.setAttributes([
+                targetid, self.sp['ID'], QDateTime.currentDateTime(),
+                self.sp['ih'], 0.0,
+                None, None, None,         # mess_sd, mess_za, mess_ha
+                None,                     # calc_hd
+                x, y, z, None,            # calc_x/y/z, prism_const
+            ])
+            self.mlayer.dataProvider().addFeature(feat)
+            self.mlayer.updateExtents()
+            self.mlayer.triggerRepaint()
+            self._center_map(x, y)
+
+            # Stab-Linie als Feature speichern (3D-LineString)
+            if self.kanal_line_layer is not None:
+                line_geom = QgsGeometry.fromPolyline([
+                    QgsPoint(p1[0], p1[1], p1[2]),
+                    QgsPoint(p2[0], p2[1], p2[2]),
+                    QgsPoint(x, y, z),
+                ])
+                lf = QgsFeature(self.kanal_line_layer.fields())
+                lf.setGeometry(line_geom)
+                lf.setAttributes([
+                    targetid, QDateTime.currentDateTime(), dist12, d_tip,
+                ])
+                self.kanal_line_layer.dataProvider().addFeature(lf)
+                self.kanal_line_layer.updateExtents()
+                self.kanal_line_layer.triggerRepaint()
+
+            # RubberBand entfernen (Stab ist nun persistent)
+            self._kanal_update_rubber_band(None, None, None)
+
+            self._protokoll_add('KANALMESSSTAB-ZIEL', '')
+            self._protokoll[-1]['data'] = {
+                'id': targetid, 'x': x, 'y': y, 'z': z,
+                'p1': p1, 'p2': p2,
+                'dist_p1_p2': dist12, 'dist_tip': d_tip,
+            }
+            self._autosave_protokoll()
+            self.iface.messageBar().pushSuccess(
+                "Kanalmessstab",
+                f"Zielpunkt '{targetid}' gespeichert  "
+                f"(|P1−P2|={dist12:.3f} m, d_tip={d_tip:.3f} m)")
+        except Exception as e:
+            print(f"[Kanal] Zielpunkt nicht gespeichert: {e}")
+
+    def _kanal_update_rubber_band(self, p1_xy, p2_xy, target_xy):
+        """Aktualisiert/entfernt das RubberBand für die Stab-Vorschau."""
+        if not self.canvas:
+            return
+        # Wenn alles None: löschen
+        if p1_xy is None and p2_xy is None and target_xy is None:
+            if self._kanal_rubber_band is not None:
+                self._kanal_rubber_band.reset(QgsWkbTypes.LineGeometry)
+                self._kanal_rubber_band = None
+            return
+
+        try:
+            src_crs = QgsCoordinateReferenceSystem(self.crsName)
+            dst_crs = QgsProject.instance().crs()
+            if (src_crs.isValid() and dst_crs.isValid()
+                    and src_crs != dst_crs):
+                tr = QgsCoordinateTransform(
+                    src_crs, dst_crs, QgsProject.instance())
+                def _to_map(xy):
+                    return tr.transform(QgsPointXY(xy[0], xy[1]))
+            else:
+                def _to_map(xy):
+                    return QgsPointXY(xy[0], xy[1])
+
+            if self._kanal_rubber_band is None:
+                self._kanal_rubber_band = QgsRubberBand(
+                    self.canvas, QgsWkbTypes.LineGeometry)
+                self._kanal_rubber_band.setColor(QColor(255, 140, 0, 220))
+                self._kanal_rubber_band.setWidth(3)
+                self._kanal_rubber_band.setZValue(105)
+            self._kanal_rubber_band.reset(QgsWkbTypes.LineGeometry)
+            pts = []
+            for xy in (p1_xy, p2_xy, target_xy):
+                if xy is not None:
+                    pts.append(_to_map(xy))
+            if len(pts) < 2:
+                return
+            for i, p in enumerate(pts):
+                self._kanal_rubber_band.addPoint(p, i == len(pts) - 1)
+        except Exception as e:
+            print(f"[Kanal-RubberBand] {e}")
+
     def open_resection_dialog(self):
         """Öffnet den Dialog für die Freie Stationierung."""
         dlg = ResectionDialog(
@@ -1914,7 +2265,7 @@ class QGISSokkia:
         end_x = x + 100.0 * math.sin(z0_rad)
         end_y = y + 100.0 * math.cos(z0_rad)
         self.orientationArrow.addFeature(x, y, end_x, end_y)
-        self.orientationArrow.addLayerToMapInstance()
+        self._add_orientation_layer_to_group()
 
         # Standpunkt in Layer speichern
         self.addStation()
@@ -2045,6 +2396,7 @@ class QGISSokkia:
             self.dockwidget.btn_open_zielpunkt.clicked.connect(self.open_zielpunkt_dialog)
             self.dockwidget.btn_open_fernsteuerung.clicked.connect(self.open_fernsteuerung_dialog)
             self.dockwidget.btn_absteckung.clicked.connect(self.open_absteckung_dialog)
+            self.dockwidget.btn_kanalmessstab.clicked.connect(self.open_kanalmessstab_dialog)
 
             # Standort-Dialog Verbindungen
             self._standort_dlg.btn_select_sp.clicked.connect(self.selectCoordinatesFromMap)
