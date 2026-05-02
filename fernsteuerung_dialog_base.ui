@@ -3,50 +3,50 @@
  <class>FernsteuerungDialogBase</class>
  <widget class="QDialog" name="FernsteuerungDialogBase">
   <property name="geometry">
-   <rect><x>0</x><y>0</y><width>200</width><height>160</height></rect>
+   <rect><x>0</x><y>0</y><width>170</width><height>140</height></rect>
   </property>
   <property name="windowTitle"><string>Fernsteuerung</string></property>
   <property name="styleSheet">
-   <string notr="true">QPushButton{border:1px solid #aaa;border-radius:3px;padding:3px 8px;background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #f8f8f8,stop:1 #e0e0e0);min-height:22px;}QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8f0fe,stop:1 #c8d8f8);border-color:#6699cc;}QPushButton:pressed{background:#c0c8d8;}QPushButton:disabled{color:#aaa;background:#f0f0f0;border-color:#d0d0d0;}QLineEdit{border:1px solid #bbb;border-radius:3px;padding:2px 4px;background:white;}</string>
+   <string notr="true">*{font-size:11px;}QPushButton{border:1px solid #ccc;border-radius:3px;padding:4px;background:#f8f8f8;font-size:14px;font-weight:bold;}QPushButton:hover{background:#e3f2fd;border-color:#90caf9;}QPushButton:pressed{background:#bbdefb;}QLineEdit{border:1px solid #ccc;border-radius:3px;padding:2px 4px;background:#fff;}</string>
   </property>
   <layout class="QVBoxLayout" name="vl_main">
-   <property name="spacing"><number>6</number></property>
-   <property name="leftMargin"><number>8</number></property>
-   <property name="topMargin"><number>8</number></property>
-   <property name="rightMargin"><number>8</number></property>
-   <property name="bottomMargin"><number>8</number></property>
+   <property name="spacing"><number>4</number></property>
+   <property name="leftMargin"><number>6</number></property>
+   <property name="topMargin"><number>6</number></property>
+   <property name="rightMargin"><number>6</number></property>
+   <property name="bottomMargin"><number>6</number></property>
 
    <!-- Richtungstasten -->
    <item>
     <layout class="QGridLayout" name="gridLayout_3">
-     <property name="horizontalSpacing"><number>3</number></property>
-     <property name="verticalSpacing"><number>3</number></property>
+     <property name="horizontalSpacing"><number>2</number></property>
+     <property name="verticalSpacing"><number>2</number></property>
      <item row="0" column="1">
       <widget class="QPushButton" name="btn_control_up">
        <property name="text"><string>&#x25B2;</string></property>
-       <property name="minimumSize"><size><width>38</width><height>32</height></size></property>
-       <property name="maximumSize"><size><width>44</width><height>36</height></size></property>
+       <property name="minimumSize"><size><width>40</width><height>34</height></size></property>
+       <property name="maximumSize"><size><width>44</width><height>38</height></size></property>
       </widget>
      </item>
      <item row="1" column="0">
       <widget class="QPushButton" name="btn_control_left">
        <property name="text"><string>&#x25C0;</string></property>
-       <property name="minimumSize"><size><width>38</width><height>32</height></size></property>
-       <property name="maximumSize"><size><width>44</width><height>36</height></size></property>
+       <property name="minimumSize"><size><width>40</width><height>34</height></size></property>
+       <property name="maximumSize"><size><width>44</width><height>38</height></size></property>
       </widget>
      </item>
      <item row="1" column="2">
       <widget class="QPushButton" name="btn_control_right">
        <property name="text"><string>&#x25B6;</string></property>
-       <property name="minimumSize"><size><width>38</width><height>32</height></size></property>
-       <property name="maximumSize"><size><width>44</width><height>36</height></size></property>
+       <property name="minimumSize"><size><width>40</width><height>34</height></size></property>
+       <property name="maximumSize"><size><width>44</width><height>38</height></size></property>
       </widget>
      </item>
      <item row="2" column="1">
       <widget class="QPushButton" name="btn_control_down">
        <property name="text"><string>&#x25BC;</string></property>
-       <property name="minimumSize"><size><width>38</width><height>32</height></size></property>
-       <property name="maximumSize"><size><width>44</width><height>36</height></size></property>
+       <property name="minimumSize"><size><width>40</width><height>34</height></size></property>
+       <property name="maximumSize"><size><width>44</width><height>38</height></size></property>
       </widget>
      </item>
     </layout>
@@ -55,11 +55,12 @@
    <!-- Schrittweite -->
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_14">
+     <property name="spacing"><number>4</number></property>
      <item><widget class="QLabel" name="label_10"><property name="text"><string>Schritt [gon]</string></property></widget></item>
      <item>
       <widget class="QLineEdit" name="input_control_step">
        <property name="text"><string>0.1</string></property>
-       <property name="maximumWidth"><number>60</number></property>
+       <property name="maximumSize"><size><width>55</width><height>16777215</height></size></property>
       </widget>
      </item>
     </layout>

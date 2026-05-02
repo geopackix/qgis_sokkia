@@ -2448,6 +2448,5 @@ class QGISSokkia:
                 self._queue_timer.start(100)  # alle 100 ms prüfen
 
             # show the dockwidget
-            # TODO: fix to allow choice of dock location
-            self.iface.addDockWidget(Qt.TopDockWidgetArea, self.dockwidget)
+            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
             self.dockwidget.show()

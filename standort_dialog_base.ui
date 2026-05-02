@@ -3,33 +3,33 @@
  <class>StandortDialogBase</class>
  <widget class="QDialog" name="StandortDialogBase">
   <property name="geometry">
-   <rect><x>0</x><y>0</y><width>430</width><height>310</height></rect>
+   <rect><x>0</x><y>0</y><width>380</width><height>260</height></rect>
   </property>
   <property name="windowTitle"><string>Standort setzen</string></property>
   <property name="styleSheet">
-   <string notr="true">QGroupBox{font-weight:bold;border:1px solid #c0c0c0;border-radius:5px;margin-top:8px;padding-top:4px;}QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;padding:0 4px;color:#333;}QLineEdit{border:1px solid #bbb;border-radius:3px;padding:2px 4px;background:white;}QLineEdit:disabled{background:#f0f0f0;color:#888;}QPushButton{border:1px solid #aaa;border-radius:3px;padding:3px 8px;background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #f8f8f8,stop:1 #e0e0e0);min-height:22px;}QPushButton:hover{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e8f0fe,stop:1 #c8d8f8);border-color:#6699cc;}QPushButton:pressed{background:#c0c8d8;}QPushButton:disabled{color:#aaa;background:#f0f0f0;border-color:#d0d0d0;}</string>
+   <string notr="true">*{font-size:11px;}QGroupBox{font-weight:600;border:1px solid #ddd;border-radius:4px;margin-top:10px;padding:6px 4px 4px 4px;}QGroupBox::title{subcontrol-origin:margin;subcontrol-position:top left;padding:0 4px;color:#444;}QLineEdit{border:1px solid #ccc;border-radius:3px;padding:2px 4px;background:#fff;}QLineEdit:disabled{background:#f5f5f5;color:#999;}QPushButton{border:1px solid #ccc;border-radius:3px;padding:4px 8px;background:#f8f8f8;}QPushButton:hover{background:#e3f2fd;border-color:#90caf9;}QPushButton:pressed{background:#bbdefb;}QPushButton:disabled{color:#bbb;background:#f5f5f5;border-color:#e0e0e0;}</string>
   </property>
   <layout class="QVBoxLayout" name="vl_main">
-   <property name="spacing"><number>6</number></property>
-   <property name="leftMargin"><number>8</number></property>
-   <property name="topMargin"><number>8</number></property>
-   <property name="rightMargin"><number>8</number></property>
-   <property name="bottomMargin"><number>8</number></property>
+   <property name="spacing"><number>4</number></property>
+   <property name="leftMargin"><number>6</number></property>
+   <property name="topMargin"><number>6</number></property>
+   <property name="rightMargin"><number>6</number></property>
+   <property name="bottomMargin"><number>6</number></property>
 
    <!-- Koordinateneingabe -->
    <item>
     <layout class="QGridLayout" name="grid_sp">
-     <property name="horizontalSpacing"><number>5</number></property>
-     <property name="verticalSpacing"><number>4</number></property>
+     <property name="horizontalSpacing"><number>4</number></property>
+     <property name="verticalSpacing"><number>3</number></property>
      <item row="0" column="0"><widget class="QLabel" name="label_8"><property name="text"><string>Rechts</string></property></widget></item>
      <item row="0" column="1"><widget class="QLineEdit" name="input_sp_x"><property name="text"><string>0</string></property></widget></item>
      <item row="0" column="2"><widget class="QLabel" name="lbl_x1"><property name="text"><string>Hoch</string></property></widget></item>
      <item row="0" column="3"><widget class="QLineEdit" name="input_sp_y"><property name="text"><string>0</string></property></widget></item>
      <item row="1" column="0"><widget class="QLabel" name="label_9"><property name="text"><string>H&#xF6;he</string></property></widget></item>
      <item row="1" column="1"><widget class="QLineEdit" name="input_sp_z"><property name="text"><string>0</string></property></widget></item>
-     <item row="1" column="2"><widget class="QLabel" name="label_3"><property name="text"><string>Pkt.-Nr.</string></property></widget></item>
+     <item row="1" column="2"><widget class="QLabel" name="label_3"><property name="text"><string>Pkt-Nr</string></property></widget></item>
      <item row="1" column="3"><widget class="QLineEdit" name="input_standpoint"><property name="placeholderText"><string>SP1</string></property></widget></item>
-     <item row="2" column="0"><widget class="QLabel" name="label_4"><property name="text"><string>Inst.-H.</string></property></widget></item>
+     <item row="2" column="0"><widget class="QLabel" name="label_4"><property name="text"><string>Inst-H</string></property></widget></item>
      <item row="2" column="1"><widget class="QLineEdit" name="input_ih"><property name="text"><string>0</string></property></widget></item>
      <item row="2" column="2"><widget class="QLabel" name="label_11"><property name="text"><string>Orient.</string></property></widget></item>
      <item row="2" column="3">
@@ -40,9 +40,9 @@
      </item>
      <item row="2" column="4">
       <widget class="QPushButton" name="btn_zero_orientation">
-       <property name="text"><string>z&#x2080; = 0</string></property>
+       <property name="text"><string>z&#x2080;=0</string></property>
        <property name="toolTip"><string>Orientierung auf 0 gon setzen (aktueller Hz-Messwert wird als Nordrichtung &#xFC;bernommen)</string></property>
-       <property name="maximumWidth"><number>60</number></property>
+       <property name="maximumSize"><size><width>44</width><height>16777215</height></size></property>
       </widget>
      </item>
     </layout>
@@ -51,17 +51,17 @@
    <!-- Anschlussrichtung -->
    <item>
     <widget class="QGroupBox" name="groupBox_8">
-     <property name="title"><string>Anschlussrichtung (Hz manuell)</string></property>
+     <property name="title"><string>Anschlussrichtung</string></property>
      <property name="checkable"><bool>true</bool></property>
      <property name="checked"><bool>false</bool></property>
      <layout class="QGridLayout" name="grid_ap">
-      <property name="horizontalSpacing"><number>5</number></property>
+      <property name="horizontalSpacing"><number>4</number></property>
       <property name="verticalSpacing"><number>3</number></property>
       <property name="leftMargin"><number>4</number></property>
       <property name="topMargin"><number>4</number></property>
       <property name="rightMargin"><number>4</number></property>
       <property name="bottomMargin"><number>4</number></property>
-      <item row="0" column="0"><widget class="QLabel" name="label_14"><property name="text"><string>AP-Nr.</string></property></widget></item>
+      <item row="0" column="0"><widget class="QLabel" name="label_14"><property name="text"><string>AP-Nr</string></property></widget></item>
       <item row="0" column="1"><widget class="QLineEdit" name="input_ap"><property name="text"><string>AP1</string></property></widget></item>
       <item row="0" column="2"><widget class="QLabel" name="label_12"><property name="text"><string>Rechts</string></property></widget></item>
       <item row="0" column="3"><widget class="QLineEdit" name="input_ap_x"><property name="text"><string>0</string></property></widget></item>
@@ -82,14 +82,14 @@
     <widget class="QLabel" name="lbl_sp_dialog">
      <property name="text"><string>Standpunkt noch nicht gesetzt</string></property>
      <property name="wordWrap"><bool>true</bool></property>
-     <property name="styleSheet"><string notr="true">color:#666;font-style:italic;padding:2px 0;</string></property>
+     <property name="styleSheet"><string notr="true">color:#888;font-style:italic;font-size:9px;padding:1px 0;</string></property>
     </widget>
    </item>
 
    <!-- Schaltfl&#xE4;chen -->
    <item>
     <layout class="QHBoxLayout" name="hl_dlg_btns">
-     <property name="spacing"><number>4</number></property>
+     <property name="spacing"><number>3</number></property>
      <item>
       <widget class="QPushButton" name="btn_select_sp">
        <property name="text"><string>&#x1F4CD; Karte</string></property>
@@ -98,7 +98,7 @@
      </item>
      <item>
       <widget class="QPushButton" name="btn_resection">
-       <property name="text"><string>&#x2295; Freie Stationierung &#x2026;</string></property>
+       <property name="text"><string>&#x2295; Freie Stat. &#x2026;</string></property>
        <property name="toolTip"><string>Standpunkt aus Messungen zu bekannten Anschlusspunkten berechnen</string></property>
       </widget>
      </item>
@@ -113,7 +113,7 @@
        <property name="enabled"><bool>false</bool></property>
        <property name="text"><string>&#x2713; Setzen</string></property>
        <property name="toolTip"><string>Standpunkt mit eingegebenen Werten setzen und Orientierung berechnen</string></property>
-       <property name="styleSheet"><string notr="true">QPushButton:enabled{background:qlineargradient(x1:0,y1:0,x2:0,y2:1,stop:0 #e3f2fd,stop:1 #bbdefb);border-color:#64b5f6;font-weight:bold;}</string></property>
+       <property name="styleSheet"><string notr="true">QPushButton:enabled{background:#e3f2fd;border-color:#64b5f6;font-weight:bold;}</string></property>
       </widget>
      </item>
     </layout>
