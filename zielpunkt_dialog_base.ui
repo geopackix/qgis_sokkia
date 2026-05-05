@@ -16,6 +16,26 @@
    <property name="rightMargin"><number>6</number></property>
    <property name="bottomMargin"><number>6</number></property>
 
+   <!-- Punkttyp-Prefix Dropdown -->
+   <item>
+    <layout class="QHBoxLayout" name="hl_prefix">
+     <property name="spacing"><number>4</number></property>
+     <item>
+      <widget class="QLabel" name="label_prefix"><property name="text"><string>Punkttyp</string></property></widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="combo_point_type">
+       <property name="toolTip"><string>Punkttyp-Prefix f&#xFC;r die Punktnummer</string></property>
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+         <horstretch>1</horstretch><verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+
    <!-- Punkt-Nr und Zielh&#xF6;he -->
    <item>
     <layout class="QGridLayout" name="form_target">

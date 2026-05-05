@@ -23,10 +23,11 @@ from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVari
 from qgis.PyQt.QtGui import QIcon, QColor
 import sip
 import os
+import json
 
 from datetime import datetime
 from qgis.gui import QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint, QgsMapLayerComboBox, QgsMapTool, QgsSnapIndicator
-from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsMapLayerProxyModel, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointLocator
+from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsMapLayerProxyModel, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointLocator, QgsRuleBasedRenderer, QgsSymbol, QgsMarkerSymbol
 from qgis.PyQt.QtWidgets import QAction, QInputDialog, QDialog, QVBoxLayout, QFormLayout, QLabel, QLineEdit, QDialogButtonBox, QFileDialog
 import serial
 import serial.tools.list_ports
@@ -566,7 +567,177 @@ class QGISSokkia:
         except Exception as e:
             self.iface.messageBar().pushCritical("Fehler", str(e))
     
-    
+    def _get_style_qml_path(self, point_type_label=None, point_type_meta=None):
+        """Ermittelt den Pfad zur QML-Stildatei für einen Punkttyp.
+        
+        point_type_meta: dict mit {prefix, qml_file, description} oder None
+        Wenn point_type_meta['qml_file'] definiert ist, wird dieser verwendet.
+        Ansonsten wird in styles/<punkt_typ_label>.qml gesucht.
+        Falls nicht vorhanden, wird styles/messung.qml als Fallback verwendet.
+        """
+        styles_dir = os.path.join(self.plugin_dir, 'styles')
+        
+        # Wenn expliziter qml_file in Metadaten definiert ist, verwende diesen
+        if point_type_meta and isinstance(point_type_meta, dict):
+            qml_file = point_type_meta.get('qml_file')
+            if qml_file:
+                specific_qml = os.path.join(styles_dir, qml_file)
+                if os.path.isfile(specific_qml):
+                    return specific_qml
+        
+        # Fallback: Punkttyp-Label in Dateinamen konvertieren
+        if point_type_label:
+            safe_name = point_type_label.replace(' ', '_').replace('/', '_')
+            specific_qml = os.path.join(styles_dir, f'{safe_name}.qml')
+            if os.path.isfile(specific_qml):
+                return specific_qml
+        
+        default_qml = os.path.join(styles_dir, 'messung.qml')
+        if os.path.isfile(default_qml):
+            return default_qml
+        return os.path.join(self.plugin_dir, 'messung.qml')
+
+    def _get_station_style_qml_path(self):
+        """Ermittelt den Pfad zur QML-Stildatei für Standpunkte aus pointTypes.json."""
+        styles_dir = os.path.join(self.plugin_dir, 'styles')
+        json_path = os.path.join(self.plugin_dir, 'pointTypes.json')
+        
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            point_types = data.get('PointPrefixNumbers', {})
+            # Suche den "Standpunkt"-Eintrag
+            station_data = point_types.get('Standpunkt')
+            if station_data and isinstance(station_data, dict):
+                qml_file = station_data.get('qml_file')
+                if qml_file:
+                    qml_path = os.path.join(styles_dir, qml_file)
+                    if os.path.isfile(qml_path):
+                        return qml_path
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"[_get_station_style_qml_path] pointTypes.json nicht geladen: {e}")
+        
+        # Fallback auf sp.qml
+        fallback_qml = os.path.join(styles_dir, 'sp.qml')
+        if os.path.isfile(fallback_qml):
+            return fallback_qml
+        # Letzter Fallback: im Root-Verzeichnis
+        return os.path.join(self.plugin_dir, 'sp.qml')
+
+    def _get_ap_style_qml_path(self):
+        """Ermittelt den Pfad zur QML-Stildatei für Anschlusspunkte aus pointTypes.json."""
+        styles_dir = os.path.join(self.plugin_dir, 'styles')
+        json_path = os.path.join(self.plugin_dir, 'pointTypes.json')
+        
+        try:
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            point_types = data.get('PointPrefixNumbers', {})
+            # Suche den "Anschlusspunkt"-Eintrag als Standard-AP-Typ
+            ap_data = point_types.get('Anschlusspunkt')
+            if ap_data and isinstance(ap_data, dict):
+                qml_file = ap_data.get('qml_file')
+                if qml_file:
+                    qml_path = os.path.join(styles_dir, qml_file)
+                    if os.path.isfile(qml_path):
+                        return qml_path
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"[_get_ap_style_qml_path] pointTypes.json nicht geladen: {e}")
+        
+        # Fallback auf ap.qml
+        fallback_qml = os.path.join(styles_dir, 'ap.qml')
+        if os.path.isfile(fallback_qml):
+            return fallback_qml
+        # Letzter Fallback: im Root-Verzeichnis
+        return os.path.join(self.plugin_dir, 'ap.qml')
+
+    def _init_rule_based_renderer(self):
+        """Initialisiert einen regelbasierten Renderer auf dem Messlayer
+        mit einer Fallback-Regel (ELSE) basierend auf styles/messung.qml."""
+        if self.mlayer is None:
+            return
+        # Lade das Default-Symbol aus der QML-Datei in einen temp-Layer
+        default_symbol = self._load_symbol_from_qml(None)
+        # Regelbasierten Renderer erstellen
+        root_rule = QgsRuleBasedRenderer.Rule(None)
+        # ELSE-Regel (Fallback für alle unbekannten Typen)
+        else_rule = QgsRuleBasedRenderer.Rule(default_symbol.clone())
+        else_rule.setLabel('Standard (Messung)')
+        else_rule.setIsElse(True)
+        root_rule.appendChild(else_rule)
+        renderer = QgsRuleBasedRenderer(root_rule)
+        self.mlayer.setRenderer(renderer)
+        self._active_style_rules = set()  # Track welche Prefixe schon Regeln haben
+
+    def _load_symbol_from_qml(self, point_type_label, point_type_meta=None):
+        """Lädt ein QgsMarkerSymbol aus einer QML-Datei.
+        
+        point_type_meta: dict mit {prefix, qml_file, description} oder None
+        Falls keine typspezifische QML existiert, wird das Default-Symbol zurückgegeben."""
+        qml_path = self._get_style_qml_path(point_type_label, point_type_meta)
+        # Temporären Layer erstellen, QML laden, Symbol extrahieren
+        tmp_layer = QgsVectorLayer('Point?crs=EPSG:4326', '_tmp_style', 'memory')
+        tmp_layer.loadNamedStyle(qml_path)
+        renderer = tmp_layer.renderer()
+        if renderer and renderer.symbol():
+            return renderer.symbol().clone()
+        # Fallback: einfaches Default-Symbol
+        return QgsMarkerSymbol.createSimple({'name': 'cross2', 'size': '3', 'color': '152,125,183,255'})
+
+    def _ensure_rule_for_point(self, point_id):
+        """Prüft ob für den Prefix der Punktnummer bereits eine Regel existiert.
+        Falls nicht, wird eine neue Regel hinzugefügt (nur dann Renderer-Update)."""
+        if self.mlayer is None:
+            return
+        if not hasattr(self, '_active_style_rules'):
+            self._active_style_rules = set()
+        # Prefix bestimmen
+        point_types = self._zielpunkt_dlg._point_types if self._zielpunkt_dlg else {}
+        matched_label = None
+        matched_prefix = None
+        matched_meta = None
+        for label, data in point_types.items():
+            # Normalisiere: data kann dict mit {prefix, qml_file, description} sein oder einfach string
+            if isinstance(data, dict):
+                prefix = data.get('prefix')
+                meta = data
+            else:
+                prefix = data
+                meta = None
+            
+            if point_id.startswith(prefix):
+                matched_label = label
+                matched_prefix = prefix
+                matched_meta = meta
+                break
+        
+        if matched_prefix is None or matched_prefix in self._active_style_rules:
+            return  # Kein bekannter Typ oder Regel bereits vorhanden
+        
+        # Prüfe ob eine typspezifische QML existiert
+        specific_qml = self._get_style_qml_path(matched_label, matched_meta)
+        default_qml = self._get_style_qml_path(None)
+        if specific_qml == default_qml:
+            # Kein spezifischer Stil → ELSE-Regel greift, nichts zu tun
+            self._active_style_rules.add(matched_prefix)
+            return
+        
+        # Neue Regel hinzufügen
+        symbol = self._load_symbol_from_qml(matched_label, matched_meta)
+        renderer = self.mlayer.renderer()
+        if not isinstance(renderer, QgsRuleBasedRenderer):
+            return
+        root_rule = renderer.rootRule()
+        # Filter: "Punktnummer" LIKE 'prefix%'
+        filter_expr = f'"Punktnummer" LIKE \'{matched_prefix}%\''
+        new_rule = QgsRuleBasedRenderer.Rule(symbol)
+        new_rule.setLabel(matched_label)
+        new_rule.setFilterExpression(filter_expr)
+        # Vor die ELSE-Regel einfügen
+        root_rule.insertChild(root_rule.childCount() - 1, new_rule)
+        self._active_style_rules.add(matched_prefix)
+        self.mlayer.triggerRepaint()
+
     def addTempLayer(self, name):
         
         self.mlayer = QgsVectorLayer("Point?crs="+self.crsName, name, "memory") #EPSG:25832
@@ -586,12 +757,14 @@ class QGISSokkia:
         calc_z = QgsField('calc_z', QVariant.Double)
         prismConst = QgsField('prism_const', QVariant.Double)
         
-        qml_file = f'{self.plugin_dir}/messung.qml'
-        self.mlayer.loadNamedStyle(qml_file)
-        
         self.mlayer.dataProvider().addAttributes([attr_pkno,attr_sp,attr_datetime,attr_ih,attr_th,attr_messung_sd,attr_messung_za,attr_messung_ha, calc_hd, calc_x, calc_y, calc_z,prismConst])
+        self.mlayer.updateFields()
         
-        self.mlayer.updateFields() 
+        # Labeling aus der Default-QML laden (setzt auch Renderer, den wir danach überschreiben)
+        default_qml = self._get_style_qml_path(None)
+        self.mlayer.loadNamedStyle(default_qml)
+        # Regelbasierten Renderer initialisieren (überschreibt den aus QML geladenen SingleSymbol-Renderer)
+        self._init_rule_based_renderer() 
         
     
     def addSpTempLayer(self, name):
@@ -606,7 +779,8 @@ class QGISSokkia:
         y = QgsField('y', QVariant.Double)
         z = QgsField('z', QVariant.Double)
         
-        qml_file = f'{self.plugin_dir}/sp.qml'
+        # Lade den Style aus pointTypes.json für den Standpunkt-Typ
+        qml_file = self._get_station_style_qml_path()
         self.splayer.loadNamedStyle(qml_file)
         self.splayer.dataProvider().addAttributes([attr_pkno,attr_datetime,attr_ih,x,y,z,attr_apno])
         self.splayer.updateFields()  
@@ -632,7 +806,8 @@ class QGISSokkia:
         t_gon = QgsField('t_gon', QVariant.Double)
         station = QgsField('Station', QVariant.String)
 
-        qml_file = f'{self.plugin_dir}/ap.qml'
+        # Lade den Style aus pointTypes.json für den Anschlusspunkt-Typ
+        qml_file = self._get_ap_style_qml_path()
         self.aplayer.loadNamedStyle(qml_file)
         self.aplayer.dataProvider().addAttributes([
             attr_pkno, attr_datetime, x, y, z,
@@ -819,15 +994,67 @@ class QGISSokkia:
                     std = res.get('std_dev', [0, 0, 0])
                     redundancy = res.get('redundancy', 0)
                     z0_gon_res = res.get('z0_gon', 0)
-                    lines.append(f"  [Freie Stationierung  —  {len(pts)} Anschlusspunkte]")
+                    mode = res.get('mode', 'standard')
+                    mode_label = "Erweitert (konform)" if mode == "extended" else "Standard (klassisch)"
+                    lines.append(f"  [Freie Stationierung  —  {mode_label}  —  {len(pts)} Anschlusspunkte]")
                     lines.append(f"  Orientierung z₀   : {z0_gon_res:.4f} gon")
                     lines.append(f"  Genauigkeit:  "
                                  f"σX: ±{std[0]:.4f} m   "
                                  f"σY: ±{std[1]:.4f} m   "
                                  f"σZ: ±{std[2]:.4f} m")
-                    lines.append(f"  σ₀ (a-posteriori) : {res.get('sigma0', 0):.4f} m   "
-                                 f"Freiheitsgrade f: {res.get('dof', 0)}   "
-                                 f"Redundanz: {redundancy}")
+                    if mode == "extended":
+                        # Varianzfaktor ist dimensionslos (σ₀ ≈ 1 bei korrekten a-priori Sigmen)
+                        lines.append(f"  σ₀ (Varianzfaktor): {res.get('sigma0', 0):.4f}   "
+                                     f"Freiheitsgrade f: {res.get('dof', 0)}   "
+                                     f"Redundanz: {redundancy:.4f}")
+                    else:
+                        lines.append(f"  σ₀ (a-posteriori) : {res.get('sigma0', 0):.4f} m   "
+                                     f"Freiheitsgrade f: {res.get('dof', 0)}   "
+                                     f"Redundanz: {redundancy:.4f}")
+                    # Erweiterte Parameter bei Modus "extended"
+                    if mode == "extended":
+                        lines.append(f"  Beobachtungen     : {res.get('num_obs', '?')}   "
+                                     f"Unbekannte: {res.get('num_unknowns', '?')}")
+                        # RMS pro Beobachtungstyp aus Per-Punkt-Daten berechnen
+                        _sd_res = [p['sd_res_mm'] for p in pts if 'sd_res_mm' in p]
+                        _hz_res = [p['hz_res_mgon'] for p in pts if 'hz_res_mgon' in p]
+                        _za_res = [p['za_res_mgon'] for p in pts if 'za_res_mgon' in p]
+                        rms_sd = math.sqrt(sum(v**2 for v in _sd_res) / max(len(_sd_res), 1)) if _sd_res else 0
+                        rms_hz = math.sqrt(sum(v**2 for v in _hz_res) / max(len(_hz_res), 1)) if _hz_res else 0
+                        rms_za = math.sqrt(sum(v**2 for v in _za_res) / max(len(_za_res), 1)) if _za_res else 0
+                        lines.append(f"  RMS Residuen      : "
+                                     f"SD={rms_sd:.2f} mm   "
+                                     f"Hz={rms_hz:.2f} mgon   "
+                                     f"ZA={rms_za:.2f} mgon")
+                        scale_sd = res.get('scale_sd')
+                        add_sd = res.get('add_sd')
+                        if scale_sd is not None:
+                            lines.append(f"  Maßstab (SD)      : {scale_sd:.8f}")
+                        if add_sd is not None:
+                            lines.append(f"  Additionskonst.(SD): {add_sd*1000.0:.2f} mm")
+                        scale_hd = res.get('scale_hd')
+                        add_hd = res.get('add_hd')
+                        if scale_hd is not None:
+                            lines.append(f"  Maßstab (HD)      : {scale_hd:.8f}")
+                        if add_hd is not None:
+                            lines.append(f"  Additionskonst.(HD): {add_hd*1000.0:.2f} mm")
+                        ih_res = res.get('instrument_height')
+                        if ih_res is not None:
+                            lines.append(f"  Instrumentenhöhe  : {ih_res:.4f} m")
+                        k = res.get('refraction_coefficient')
+                        R = res.get('earth_radius')
+                        if k is not None:
+                            lines.append(f"  Refraktionskoeff. : {k:.4f}")
+                        if R is not None:
+                            lines.append(f"  Erdradius         : {R:.1f} m")
+                        sig_sd = res.get('sigma_sd_mm')
+                        sig_hz = res.get('sigma_hz_mgon')
+                        sig_za = res.get('sigma_za_mgon')
+                        if sig_sd is not None or sig_hz is not None or sig_za is not None:
+                            lines.append(f"  A-priori σ        : "
+                                         f"SD={sig_sd:.1f} mm   "
+                                         f"Hz={sig_hz:.2f} mgon   "
+                                         f"ZA={sig_za:.2f} mgon")
                     lines.append(f"  [Schwellwerte BW:  vHz ±20*/±50**,  vSD ±20*/±50** mm,  vZA ±20*/±50** mgon]")
                     lines.append('')
                     lines.append(f"  {'Punkt':<14}  {'X-AP [m]':>14}  {'Y-AP [m]':>14}  {'Z-AP [m]':>9}  "
@@ -1449,6 +1676,8 @@ class QGISSokkia:
                                         self.sp['ih'], th, sd, za, ha, hd, x, y, z, prism_constant])
                 self.mlayer.dataProvider().addFeature(feature)
                 print('Punkt gespeichert:', save_id)
+                # Regelbasierten Stil prüfen/erweitern falls neuer Punkttyp
+                self._ensure_rule_for_point(save_id)
                 self.mlayer.updateExtents()
                 self.mlayer.triggerRepaint()
                 self._center_map(x, y)
@@ -1822,9 +2051,14 @@ class QGISSokkia:
         else:
             self.target = 2    
             
-        
-         
-    
+    def _on_point_type_changed(self, index):
+        """Wird aufgerufen wenn der Punkttyp im Zielpunkt-Dialog geändert wird.
+        Stellt sicher, dass eine Regel für diesen Typ vorhanden ist."""
+        prefix = self._zielpunkt_dlg.get_current_prefix()
+        if prefix:
+            # Dummy-ID mit dem Prefix prüfen, um ggf. Regel vorzubereiten
+            self._ensure_rule_for_point(prefix + '0')
+
     def setTarget(self):
         
         targetType = 'None'
@@ -2426,6 +2660,8 @@ class QGISSokkia:
             self._zielpunkt_dlg.radio_reflectorless.clicked.connect(self.selectTarget)
             self._zielpunkt_dlg.btn_setTarget.clicked.connect(self.setTarget)
             self._zielpunkt_dlg.input_prismConstant.setText(str(self.targetPrismConstant))
+            self._zielpunkt_dlg.combo_point_type.currentIndexChanged.connect(
+                self._on_point_type_changed)
 
             # Fernsteuerungs-Dialog Verbindungen
             self._fernsteuerung_dlg.btn_control_left.clicked.connect(lambda: self.control('h', -1))

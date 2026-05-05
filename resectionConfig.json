@@ -1,0 +1,8 @@
+{
+    "APrioriStandardDeviations": {
+        "sigma_sd_m": 0.002,
+        "sigma_hz_mgon": 0.2,
+        "sigma_za_mgon": 0.2
+    },
+    "description": "A-priori Standardabweichungen für die Freie Stationierung (Erweitert)"
+}

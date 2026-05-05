@@ -15,6 +15,7 @@ Ablauf:
 import math
 import os
 import sys
+import json
 
 import numpy as np
 
@@ -76,6 +77,33 @@ def _mean_angle_gon(angles_gon: list) -> float:
     mean_sin = sum(sins) / len(sins)
     mean_cos = sum(coss) / len(coss)
     return _normalize_gon(_rad_to_gon(math.atan2(mean_sin, mean_cos)))
+
+
+def _load_apriori_sigmas():
+    """Lädt die A-priori Standardabweichungen aus resectionConfig.json."""
+    plugin_dir = os.path.dirname(os.path.dirname(__file__))
+    config_path = os.path.join(plugin_dir, 'resectionConfig.json')
+    
+    defaults = {
+        'sigma_sd_m': 0.005,
+        'sigma_hz_mgon': 1.0,
+        'sigma_za_mgon': 1.0,
+    }
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        apriori = data.get('APrioriStandardDeviations', {})
+        if apriori:
+            return {
+                'sigma_sd_m': apriori.get('sigma_sd_m', defaults['sigma_sd_m']),
+                'sigma_hz_mgon': apriori.get('sigma_hz_mgon', defaults['sigma_hz_mgon']),
+                'sigma_za_mgon': apriori.get('sigma_za_mgon', defaults['sigma_za_mgon']),
+            }
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"[ResectionDialog] resectionConfig.json nicht geladen: {e}")
+    
+    return defaults
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -283,18 +311,21 @@ class ResectionDialog(QDialog):
 
         # A-priori-Sigmen
         sig_row = QHBoxLayout()
+        # Lade A-priori-Werte aus Konfiguration
+        apriori_config = _load_apriori_sigmas()
+        
         sig_row.addWidget(QLabel("σ SD [m]:"))
-        self.input_sigma_sd = QLineEdit("0.005")
+        self.input_sigma_sd = QLineEdit(str(apriori_config['sigma_sd_m']))
         self.input_sigma_sd.setMaximumWidth(70)
         sig_row.addWidget(self.input_sigma_sd)
         sig_row.addSpacing(10)
         sig_row.addWidget(QLabel("σ Hz [mgon]:"))
-        self.input_sigma_hz = QLineEdit("1.0")
+        self.input_sigma_hz = QLineEdit(str(apriori_config['sigma_hz_mgon']))
         self.input_sigma_hz.setMaximumWidth(70)
         sig_row.addWidget(self.input_sigma_hz)
         sig_row.addSpacing(10)
         sig_row.addWidget(QLabel("σ ZA [mgon]:"))
-        self.input_sigma_za = QLineEdit("1.0")
+        self.input_sigma_za = QLineEdit(str(apriori_config['sigma_za_mgon']))
         self.input_sigma_za.setMaximumWidth(70)
         sig_row.addWidget(self.input_sigma_za)
         sig_row.addStretch()
@@ -619,6 +650,38 @@ class ResectionDialog(QDialog):
         if row >= 0:
             self.table.removeRow(row)
 
+    def _auto_match_anschlusspoint(self, row, measurement_pnr):
+        """
+        Sucht automatisch einen passenden Anschlusspunkt basierend auf der Punktnummer.
+        Wenn der Wert des ID-Feldes eines AP-Features mit der Messungs-Punktnummer übereinstimmt,
+        wird dieser AP automatisch in der ComboBox (Spalte 4) ausgewählt.
+        """
+        layer = self.layer_combo.currentLayer()
+        id_field_name = self.field_id.currentField()
+        
+        if layer is None or not id_field_name:
+            return
+        
+        # Durchsuche alle AP-Features nach einem Match
+        for feat in layer.getFeatures():
+            ap_id_value = str(feat[id_field_name]).strip() if id_field_name else None
+            measurement_pnr_str = str(measurement_pnr).strip()
+            
+            if ap_id_value and ap_id_value == measurement_pnr_str:
+                # Passender AP gefunden – setze die ComboBox
+                combo_ap = self.table.cellWidget(row, 4)
+                if combo_ap is not None:
+                    combo_ap.blockSignals(True)
+                    # Suche den Index basierend auf feature_id
+                    for i in range(combo_ap.count()):
+                        if combo_ap.itemData(i) == feat.id():
+                            combo_ap.setCurrentIndex(i)
+                            break
+                    combo_ap.blockSignals(False)
+                    # Trigger die ap_changed Logik
+                    self._on_ap_changed(row)
+                break
+
     def _on_measurement_changed(self, row):
         combo = self.table.cellWidget(row, 0)
         if combo is None:
@@ -629,6 +692,11 @@ class ResectionDialog(QDialog):
             item = self.table.item(row, col)
             if item:
                 item.setText(f"{m[key]:.4f}" if m else "—")
+        
+        # Automatische Zuordnung: Wenn eine Messung ausgewählt wurde,
+        # versuche den passenden Anschlusspunkt basierend auf der Punktnummer zu finden
+        if m is not None:
+            self._auto_match_anschlusspoint(row, m["pnr"])
 
     def _on_ap_changed(self, row):
         combo = self.table.cellWidget(row, 4)
@@ -1021,6 +1089,7 @@ class ResectionDialog(QDialog):
                 'hz_res_mgon': hz_res_mgon,
             })
 
+        mode = self.mode_combo.currentData() if hasattr(self, "mode_combo") else "standard"
         details = {
             'std_dev':    self._result.std_dev.tolist(),
             'sigma0':     self._result.sigma0,
@@ -1029,7 +1098,27 @@ class ResectionDialog(QDialog):
             'z0_gon':     z0_gon,
             'points':     points,
             'ih':         _parse_float(self.input_ih.text()),  # Instrumentenhöhe
+            'mode':       mode,  # "standard" oder "extended"
         }
+        # Erweiterte Parameter nur im Modus 'extended' hinzufügen
+        if mode == "extended":
+            details['scale_sd'] = getattr(self._result, 'scale_sd', None)
+            details['add_sd'] = getattr(self._result, 'add_sd', None)
+            details['scale_hd'] = getattr(self._result, 'scale_hd', None)
+            details['add_hd'] = getattr(self._result, 'add_hd', None)
+            details['num_obs'] = getattr(self._result, 'num_obs', None)
+            details['num_unknowns'] = getattr(self._result, 'num_unknowns', None)
+            details['rms_residual'] = getattr(self._result, 'rms_residual', None)
+            details['refraction_coefficient'] = getattr(self._result, 'refraction_coefficient', None)
+            details['earth_radius'] = getattr(self._result, 'earth_radius', None)
+            details['instrument_height'] = getattr(self._result, 'instrument_height', None)
+            # A-priori Sigmen aus Eingabefeldern
+            try:
+                details['sigma_sd_mm'] = _parse_float(self.input_sigma_sd.text()) * 1000.0
+                details['sigma_hz_mgon'] = _parse_float(self.input_sigma_hz.text())
+                details['sigma_za_mgon'] = _parse_float(self.input_sigma_za.text())
+            except (ValueError, AttributeError):
+                pass
 
         self.result_accepted.emit(
             float(X_P), float(Y_P), float(Z_P),

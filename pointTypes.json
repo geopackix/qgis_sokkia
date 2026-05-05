@@ -1,0 +1,64 @@
+{
+    "PointPrefixNumbers":{
+        "Standpunkt": {
+            "prefix": "SP.",
+            "qml_file": "sp.qml",
+            "description": "Standort des Messinstruments"
+        },
+        "Anschlusspunkt": {
+            "prefix": "103.",
+            "qml_file": "ap.qml",
+            "description": "Bekannter Anschlusspunkt für Orientierung"
+        },
+        "Festpunkt-Höhe": {
+            "prefix": "104.",
+            "qml_file": "ap.qml",
+            "description": "Festpunkt - Höhenbestimmung"
+        },
+        "Festpunkt-3D": {
+            "prefix": "101.",
+            "qml_file": "ap.qml",
+            "description": "Festpunkt - 3D-Koordinaten"
+        },
+        "Festpunkt-Lage": {
+            "prefix": "102.",
+            "qml_file": "ap.qml",
+            "description": "Festpunkt - Lagebestimmung"
+        },
+        "Sonstiges": {
+            "prefix": "199.",
+            "qml_file": "messung.qml",
+            "description": "Sonstige Punkte"
+        },
+        "Messung-Wandpunkt": {
+            "prefix": "110.",
+            "qml_file": "messung.qml",
+            "description": "Messung an Wandoberfläche"
+        },
+        "Messung-WandEcke": {
+            "prefix": "111.",
+            "qml_file": "messung.qml",
+            "description": "Messung an Wandecke"
+        },
+        "Messung-Gebäudeecke": {
+            "prefix": "112.",
+            "qml_file": "messung.qml",
+            "description": "Messung an Gebäudeecke"
+        },
+        "Messung-Geländehöhe": {
+            "prefix": "120.",
+            "qml_file": "messung.qml",
+            "description": "Messung der Geländehöhe"
+        },
+        "Messung-Fenster": {
+            "prefix": "113.",
+            "qml_file": "messung.qml",
+            "description": "Messung an Fensteröffnung"
+        },
+        "Grenzpunkt": {
+            "prefix": "140.",
+            "qml_file": "ap.qml",
+            "description": "Grenzpunkt der Liegenschaft"
+        }
+    }
+}
