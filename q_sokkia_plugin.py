@@ -21,6 +21,7 @@
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant, QDateTime, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QIcon, QColor
+import sip
 import os
 
 from datetime import datetime
@@ -504,6 +505,7 @@ class QGISSokkia:
             
             crs = self.dockwidget.mQgsProjectionSelectionWidget.crs()
             self.crsName = crs.authid()
+            self.orientationArrow = OrientationArrow(self.crsName)
             print(f"Using CRS: {self.crsName}")
             
             
@@ -673,6 +675,15 @@ class QGISSokkia:
         ])
         self.kanal_line_layer.updateFields()
 
+    def _layer_group_valid(self) -> bool:
+        """Gibt True zurück, wenn self._layer_group noch auf ein gültiges C++-Objekt zeigt."""
+        if self._layer_group is None:
+            return False
+        if sip.isdeleted(self._layer_group):
+            self._layer_group = None
+            return False
+        return True
+
     def _add_temp_layers_into_group(self, group_name: str):
         """Fügt die temporären Layer dem Projekt hinzu und legt sie in eine neue Layer-Gruppe.
 
@@ -702,7 +713,7 @@ class QGISSokkia:
         # Prüfe ob Layer bereits im Projekt registriert ist
         if proj.mapLayer(layer.id()) is not None:
             return
-        if self._layer_group is not None:
+        if self._layer_group_valid():
             proj.addMapLayer(layer, False)
             self._layer_group.addLayer(layer)
         else:
@@ -718,6 +729,7 @@ class QGISSokkia:
         """Legt alle nötigen Layer an, ohne eine serielle Verbindung zu benötigen."""
         crs = self.dockwidget.mQgsProjectionSelectionWidget.crs()
         self.crsName = crs.authid() if crs.isValid() else "EPSG:25832"
+        self.orientationArrow = OrientationArrow(self.crsName)
 
         self.addTempLayer(f"Messungen-{datetime.now().strftime('%d%m%y-%H%M')}")
         self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
@@ -1936,7 +1948,7 @@ class QGISSokkia:
         if self.hmlayer is None:
             self.addHmTempLayer(
                 f"HilfsMesspunkte-{datetime.now().strftime('%d%m%y-%H%M')}")
-            if self._layer_group is not None:
+            if self._layer_group_valid():
                 QgsProject.instance().addMapLayer(self.hmlayer, False)
                 self._layer_group.addLayer(self.hmlayer)
             else:
@@ -1944,7 +1956,7 @@ class QGISSokkia:
         if self.kanal_line_layer is None:
             self.addKanalLineLayer(
                 f"KanalmessstabLinien-{datetime.now().strftime('%d%m%y-%H%M')}")
-            if self._layer_group is not None:
+            if self._layer_group_valid():
                 QgsProject.instance().addMapLayer(self.kanal_line_layer, False)
                 self._layer_group.addLayer(self.kanal_line_layer)
             else:

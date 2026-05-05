@@ -1,3 +1,5 @@
-jag3d-master
-.pyc
-__pycache__
+jag3d-master/
+*.pyc
+__pycache__/
+web/
+temp_protocols/

@@ -555,6 +555,7 @@ class TransferDialog(QDialog):
                 QgsField("Hochwert", QVariant.Double),
                 QgsField("Hoehe", QVariant.Double),
                 QgsField("Beschreibung", QVariant.String),
+                QgsField("ih", QVariant.Double),
             ]
         )
         layer.updateFields()
@@ -575,6 +576,7 @@ class TransferDialog(QDialog):
                     coord["northing"],
                     coord["elevation"],
                     coord["description"],
+                    coord.get("ih"),
                 ]
             )
             features.append(feat)
@@ -593,27 +595,52 @@ class TransferDialog(QDialog):
     # ==================================================================
     @staticmethod
     def _parse_sdr33(data):
-        """Coordinate records (type code 08) aus SDR33-Daten extrahieren."""
+        """Coordinate records (type code 08 und 02) aus SDR33-Daten extrahieren.
+
+        Typ 08 = bekannter Koordinatenpunkt (Known Point)
+        Typ 02 = besetzter Standpunkt (Occupied Point / Station)
+        Beide Typen haben dieselbe Feldstruktur ab Position 4:
+          4-19  Punktname (16)
+          20-35 Hochwert / Northing (16)
+          36-51 Rechtswert / Easting (16)
+          52-67 Höhe / Elevation (16)
+          68-83 Beschreibung (Typ 08) / Instrumentenhöhe (Typ 02)
+        """
         coordinates = []
         clean = data.replace(chr(0x02), "").replace(chr(0x03), "")
         for line in clean.split("\n"):
             line = line.strip("\r")
-            if len(line) >= 84 and line[:2] == "08":
-                try:
-                    point_id = line[4:20].strip()
-                    northing = float(line[20:36].strip())
-                    easting = float(line[36:52].strip())
-                    elevation = float(line[52:68].strip())
-                    description = line[68:84].strip()
-                    coordinates.append(
-                        {
-                            "point_id": point_id,
-                            "northing": northing,
-                            "easting": easting,
-                            "elevation": elevation,
-                            "description": description,
-                        }
-                    )
-                except (ValueError, IndexError):
-                    continue
+            type_code = line[:2] if len(line) >= 2 else ""
+            if type_code not in ("08", "02"):
+                continue
+            if len(line) < 68:
+                continue
+            try:
+                point_id = line[4:20].strip()
+                northing = float(line[20:36].strip())
+                easting = float(line[36:52].strip())
+                elevation = float(line[52:68].strip())
+                if type_code == "08":
+                    description = line[68:84].strip() if len(line) >= 84 else ""
+                    ih = None
+                else:
+                    # Typ 02: Feld 68-83 enthält die Instrumentenhöhe
+                    description = ""
+                    try:
+                        ih_str = line[68:84].strip() if len(line) >= 84 else ""
+                        ih = float(ih_str) if ih_str else None
+                    except ValueError:
+                        ih = None
+                coordinates.append(
+                    {
+                        "point_id": point_id,
+                        "northing": northing,
+                        "easting": easting,
+                        "elevation": elevation,
+                        "description": description,
+                        "ih": ih,
+                    }
+                )
+            except (ValueError, IndexError):
+                continue
         return coordinates
