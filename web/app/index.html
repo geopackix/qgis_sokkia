@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sokkia Web Control</title>
+    <link rel="stylesheet" href="./src/style.css">
+</head>
+<body class="theme-dark">
+    <div id="app">
+        <header>
+            <div class="header-left">
+                <h1>&#x1F4E1; Sokkia Web Control</h1>
+                <div id="device-info">
+                    <span id="conn-status" class="status-disconnected">&#x25CB; Getrennt</span>
+                    <span id="coord-sys">EPSG:25832</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <button id="connect-btn" class="btn-primary">&#x25B6; Verbinden</button>
+                <div id="battery-status" class="battery-unknown">&#x1F50B; --%</div>
+            </div>
+        </header>
+
+        <nav id="main-nav">
+            <button class="nav-btn active" data-tab="map-tab">&#x1F4CD; Karte</button>
+            <button class="nav-btn" data-tab="station-tab">&#x2295; Station</button>
+            <button class="nav-btn" data-tab="measure-tab">&#x2316; Messung</button>
+            <button class="nav-btn" data-tab="stakeout-tab">&#x1F3AF; Absteckung</button>
+            <button class="nav-btn" data-tab="remote-tab">&#x1F579; Fernsteuerung</button>
+            <button class="nav-btn" data-tab="protocol-tab">&#x2026; Protokoll</button>
+        </nav>
+
+        <main>
+            <!-- Tab: Karte (immer sichtbar im Hintergrund oder als Overlay) -->
+            <div id="map-tab" class="tab-content active">
+                <div id="map"></div>
+                <div id="coordinates-overlay">
+                    <p>E: <span id="cur-e">0.000</span></p>
+                    <p>N: <span id="cur-n">0.000</span></p>
+                    <p>Z: <span id="cur-z">0.000</span></p>
+                </div>
+            </div>
+
+            <!-- Tab: Stationierung -->
+            <div id="station-tab" class="tab-content">
+                <div class="card">
+                    <h2>&#x2295; Freie Stationierung</h2>
+                    <div class="form-group">
+                        <label>Instrumentenhöhe (ih):</label>
+                        <input type="number" id="ih" step="0.001" value="1.600">
+                    </div>
+                    <div class="point-list-container">
+                        <table id="station-points">
+                            <thead>
+                                <tr>
+                                    <th>PointID</th>
+                                    <th>Hz [gon]</th>
+                                    <th>V [gon]</th>
+                                    <th>Dist [m]</th>
+                                    <th>Code</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="button-row">
+                        <button id="meas-station-pt">&#x2316; Messpunkt erfassen</button>
+                        <button id="calc-station">&#x2713; Berechnen</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Messung -->
+            <div id="measure-tab" class="tab-content">
+                <div class="card">
+                    <div class="control-panel">
+                        <div class="field">
+                            <label>Punktnummer:</label>
+                            <input type="text" id="pt-id" value="100">
+                        </div>
+                        <div class="field">
+                            <label>Reflektorhöhe:</label>
+                            <input type="number" id="th" step="0.001" value="2.000">
+                        </div>
+                        <div class="field">
+                            <label>Zieltyp:</label>
+                            <select id="target-type">
+                                <option value="prism">Prisma</option>
+                                <option value="reflectorless">Reflektorlos</option>
+                            </select>
+                        </div>
+                        <button id="measure-trigger-btn" class="btn-large pulse">&#x2316; Messen & Speichern</button>
+                    </div>
+                    <div id="live-readings">
+                        <div class="reading big">Hz: <span id="live-hz">0.0000</span> gon</div>
+                        <div class="reading big">V: <span id="live-v">0.0000</span> gon</div>
+                        <div class="reading">SD: <span id="live-sd">0.000</span> m</div>
+                        <div class="reading">HD: <span id="live-hd">0.000</span> m</div>
+                        <div class="reading">VD: <span id="live-vd">0.000</span> m</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Fernsteuerung -->
+            <div id="remote-tab" class="tab-content">
+                <div class="remote-grid">
+                    <div class="joystick-container">
+                        <div class="joystick-ring">
+                            <button class="joy-btn up" id="joy-up">&#x25B2;</button>
+                            <button class="joy-btn left" id="joy-left">&#x25C0;</button>
+                            <button class="joy-btn center" id="joy-center">&#x2316;</button>
+                            <button class="joy-btn right" id="joy-right">&#x25B6;</button>
+                            <button class="joy-btn down" id="joy-down">&#x25BC;</button>
+                        </div>
+                    </div>
+                    <div class="remote-settings">
+                        <label>Schrittweite:</label>
+                        <select id="step-size">
+                            <option value="0.001">Grob (0.1 gon)</option>
+                            <option value="0.0001">Fein (0.01 gon)</option>
+                        </select>
+                        <button id="laser-pointer">&#x26A1; Laser ON/OFF</button>
+                        <button id="track-lock">&#x1F512; ATR Lock</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Protokoll -->
+            <div id="protocol-tab" class="tab-content">
+                <div class="card">
+                    <div class="toolbar">
+                        <button id="download-prot">&#x1F4E5; Export TXT</button>
+                        <button id="clear-prot">&#x1F4D1; Leeren</button>
+                    </div>
+                    <pre id="protocol-output">Initialisiere Applikation...</pre>
+                </div>
+            </div>
+        </main>
+
+        <footer id="footer-status">
+            <span id="last-msg">Bereit</span>
+            <span id="data-rate">0 B/s</span>
+        </footer>
+    </div>
+    <script type="module" src="./src/main.js"></script>
+</body>
+</html>

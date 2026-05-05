@@ -1,0 +1,101 @@
+================================================================================
+  QGIS Sokkia Plugin  —  Messprotokoll
+================================================================================
+  Erstellt am  : 05.05.2026 10:36:47
+  Sitzungsstart: 05.05.2026 10:26:19
+  Gerät        : (unbekannt)
+  Port / Baud  : COM6  /  9600
+  Koordinaten  : EPSG:31467
+================================================================================
+
+  Stationierungen: 2    Messungen: 4
+
+[10:26:19.256] VERBINDUNG
+  Port: COM6  Baudrate: 9600  Gerät: ?  CRS: EPSG:31467
+
+[10:29:03.954] Messung #1  —  Pkt: AP_20
+  Hz (Messwert)     : 282.3816 gon
+  Hz (orientiert)   : 282.3816 gon
+  ZA (Zenitwinkel)  : 95.7323 gon
+  SD (Schrägdistanz): 7.3470 m
+  HD (Horizontaldist): 7.3305 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : -7.0516 m
+  Ber. Y (Hoch)     : -2.0029 m
+  Ber. Z (Höhe)     : 0.4922 m
+
+[10:30:29.829] Messung #2  —  Pkt: AP_18
+  Hz (Messwert)     : 392.3894 gon
+  Hz (orientiert)   : 392.3894 gon
+  ZA (Zenitwinkel)  : 94.3058 gon
+  SD (Schrägdistanz): 5.3070 m
+  HD (Horizontaldist): 5.2858 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : -0.6304 m
+  Ber. Y (Hoch)     : 5.2481 m
+  Ber. Z (Höhe)     : 0.4740 m
+
+[10:31:26.592] Messung #3  —  Pkt: AP_17
+  Hz (Messwert)     : 95.8646 gon
+  Hz (orientiert)   : 95.8646 gon
+  ZA (Zenitwinkel)  : 94.1600 gon
+  SD (Schrägdistanz): 3.5000 m
+  HD (Horizontaldist): 3.4853 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : 3.4779 m
+  Ber. Y (Hoch)     : 0.2262 m
+  Ber. Z (Höhe)     : 0.3206 m
+
+[10:32:27.946] Messung #4  —  Pkt: AP_21
+  Hz (Messwert)     : 126.6583 gon
+  Hz (orientiert)   : 126.6583 gon
+  ZA (Zenitwinkel)  : 86.8915 gon
+  SD (Schrägdistanz): 2.3120 m
+  HD (Horizontaldist): 2.2632 m
+  Zielh. (th)       : 0.0000 m
+  Prismenkonstante  : 0.0 mm
+  Ber. X (Rechts)   : 2.0676 m
+  Ber. Y (Hoch)     : -0.9202 m
+  Ber. Z (Höhe)     : 0.4727 m
+
+--------------------------------------------------------------------------------
+[10:36:43.070] STATIONIERUNG #1
+  Standpunkt-Nr.    : SP1
+  Rechts (X)        : 3523665.4750 m
+  Hoch   (Y)        : 5413160.7253 m
+  Höhe   (H)        : 294.0954 m
+  Instrumentenhöhe  : 0.0000 m
+  Orientierung z0   : -290.6323 gon
+  [Freie Stationierung  —  4 Anschlusspunkte]
+  Orientierung z₀   : -290.6323 gon
+  Genauigkeit:  σX: ±0.0001 m   σY: ±0.0001 m   σZ: ±0.0003 m
+  σ₀ (a-posteriori) : 0.0002 m   Freiheitsgrade f: 8   Redundanz: 0.6666666666666666
+  [Schwellwerte BW:  vHz ±20*/±50**,  vSD ±20*/±50** mm,  vZA ±20*/±50** mgon]
+
+  Punkt                 X-AP [m]        Y-AP [m]   Z-AP [m]    Hz [gon]     t [gon]  vHz [mgon]     SD [m]  SDber [m]  vSD [mm]    ZA [gon]  ZAber [gon]  vZA [mgon]
+  --------------  --------------  --------------  ---------  ----------  ----------  ----------  ---------  ---------  --------  ----------  -----------  ----------
+  103.0020          3523664.5270    5413167.9940   294.5880    282.3816    391.7436        -5.7     7.3470     7.3468        +0.2     95.7323      95.7280        +4.3
+  103.0018          3523670.7590    5413160.5800   294.5690    392.3894    101.7496        -7.5     5.3070     5.3072        -0.2     94.3058      94.3109        -5.1
+  103.0017          3523665.1890    5413157.2520   294.4160     95.8646    205.2306        -1.7     3.5000     3.4997        +0.3     94.1600      94.1592        +0.8
+  103.0021          3523664.2610    5413158.8150   294.5680    126.6583    236.0410       +15.0     2.3120     2.3122        -0.2     86.8915      86.8944        -2.9
+
+  Legende:  * = WARN (±20 mgon Hz, ±20 mm SD, ±20 mgon ZA)
+            ** = ERROR (±50 mgon Hz, ±50 mm SD, ±50 mgon ZA)
+
+
+--------------------------------------------------------------------------------
+[10:36:47.349] STATIONIERUNG #2
+  Standpunkt-Nr.    : SP1
+  Rechts (X)        : 3523665.4750 m
+  Hoch   (Y)        : 5413160.7253 m
+  Höhe   (H)        : 294.0954 m
+  Instrumentenhöhe  : 0.0000 m
+  Orientierung z0   : -290.6323 gon
+  Anschlussrichtung :   X=  Y=
+
+================================================================================
+  Ende des Protokolls  —  2 Stationierung(en)  /  4 Messung(en)
+================================================================================
