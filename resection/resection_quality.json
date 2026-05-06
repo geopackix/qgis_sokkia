@@ -1,0 +1,47 @@
+{
+  "_comment": "Grenzwerte fuer die Qualitaetseinordnung der Freien Stationierung. sigma0 wird bewusst nicht verwendet, da er von der Messungsgewichtung abhaengt und nicht direkt vergleichbar ist.",
+  "quality_thresholds": {
+    "excellent": {
+      "name": "Ausgezeichnet",
+      "color": "green",
+      "std_dev_xy_max_m": 0.01,
+      "std_dev_z_max_m": 0.015,
+      "rms_residual_max_m": 0.005,
+      "max_residual_max_m": 0.015,
+      "redundancy_min": 0.3
+    },
+    "good": {
+      "name": "Gut",
+      "color": "lightgreen",
+      "std_dev_xy_max_m": 0.05,
+      "std_dev_z_max_m": 0.075,
+      "rms_residual_max_m": 0.02,
+      "max_residual_max_m": 0.05,
+      "redundancy_min": 0.1
+    },
+    "acceptable": {
+      "name": "Akzeptabel",
+      "color": "yellow",
+      "std_dev_xy_max_m": 0.1,
+      "std_dev_z_max_m": 0.15,
+      "rms_residual_max_m": 0.05,
+      "max_residual_max_m": 0.1,
+      "redundancy_min": 0.0
+    },
+    "poor": {
+      "name": "Schlecht",
+      "color": "red",
+      "std_dev_xy_max_m": 999.0,
+      "std_dev_z_max_m": 999.0,
+      "rms_residual_max_m": 999.0,
+      "max_residual_max_m": 999.0,
+      "redundancy_min": 0.0
+    }
+  },
+  "description": {
+    "excellent": "Die Stationierung ist von sehr hoher Qualität. Alle Messungen sind hochgenau und konsistent.",
+    "good": "Die Stationierung ist von guter Qualität und für Standardvermessungen ausreichend.",
+    "acceptable": "Die Stationierung ist brauchbar, aber für präzise Arbeiten sollte überprüft werden.",
+    "poor": "Die Stationierung ist fehlerhaft oder von schlechter Qualität. Die Messungen sollten überprüft werden."
+  }
+}

@@ -23,6 +23,14 @@ from qgis.gui import QgsMapLayerComboBox, QgsFieldComboBox
 from qgis.core import QgsMapLayerProxyModel, QgsWkbTypes
 
 
+def _normalize_gon(gon: float) -> float:
+    """Normiert einen Winkel auf [0, 400) gon. 400 gon = Vollkreis."""
+    gon = gon % 400.0
+    if gon < 0:
+        gon += 400.0
+    return gon
+
+
 def _gon_fmt(value: float) -> str:
     """Formatiert einen Gon-Wert als 7-stelligen String für den *DHA-Befehl."""
     s = f"{value:.4f}".replace('.', '')
@@ -330,12 +338,11 @@ class AbsteckungDialog(QDialog):
             return
 
         # Geodätischer Richtungswinkel zum Ziel [gon]
-        t_gon = math.atan2(dx, dy) * 200.0 / math.pi
-        t_gon = t_gon % 400.0
+        t_gon = _normalize_gon(math.atan2(dx, dy) * 200.0 / math.pi)
 
         # Hz-Rohwert (Instrumentenablesung) = t - z0
         orientation_gon = p.orientation * 200.0 / math.pi
-        hz_raw = (t_gon - orientation_gon) % 400.0
+        hz_raw = _normalize_gon(t_gon - orientation_gon)
 
         self._lbl_t.setText(f"{t_gon:.4f} gon")
         self._lbl_hz.setText(f"{hz_raw:.4f} gon")
@@ -382,12 +389,12 @@ class AbsteckungDialog(QDialog):
             return
 
         orientation_gon = p.orientation * 200.0 / math.pi
-        hz_raw = (math.atan2(dx, dy) * 200.0 / math.pi - orientation_gon) % 400.0
+        hz_raw = _normalize_gon(math.atan2(dx, dy) * 200.0 / math.pi - orientation_gon)
 
         # ZA: bei 2D aktuellen ZA-Wert des Instruments beibehalten
         if self._rb_3d.isChecked() and tz is not None:
             dh = tz - (sp_z + ih)
-            za_gon = (100.0 - math.atan2(dh, hd) * 200.0 / math.pi) % 400.0
+            za_gon = _normalize_gon(100.0 - math.atan2(dh, hd) * 200.0 / math.pi)
         else:
             za_gon = p.measureValues.get('za', 100.0)
 

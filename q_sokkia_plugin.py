@@ -80,6 +80,14 @@ def parse_float(value):
     return float(s)
 
 
+def _normalize_gon(gon: float) -> float:
+    """Normiert einen Winkel auf [0, 400) gon. 400 gon = Vollkreis."""
+    gon = gon % 400.0
+    if gon < 0:
+        gon += 400.0
+    return gon
+
+
 class SnapPointTool(QgsMapTool):
     """Map-Tool mit Objektfang-Indikator. Snap wird während Mausbewegung berechnet."""
     pointPicked = pyqtSignal(QgsPointXY)
@@ -1600,7 +1608,7 @@ class QGISSokkia:
             sp_x = self.sp.get('RECHTS', 0)
             sp_y = self.sp.get('HOCH', 0)
             # Hz-Rohwert + Orientierung -> Nordrichtung in Gon
-            ha_oriented = (ha_raw + self.orientation * 200.0 / math.pi) % 400
+            ha_oriented = _normalize_gon(ha_raw + self.orientation * 200.0 / math.pi)
             ha_rad = ha_oriented * math.pi / 200.0
             length = 100.0
             end_x = sp_x + length * math.sin(ha_rad)
@@ -1681,7 +1689,7 @@ class QGISSokkia:
             
             #orientierung
             ha_raw_proto = ha % 400  # Rohwert in Gon für Protokoll
-            ha = (ha + self.orientation * 200.0 / math.pi) % 400
+            ha = _normalize_gon(ha + self.orientation * 200.0 / math.pi)
             
             th = float(self._zielpunkt_dlg.input_th.text())
             
@@ -1773,8 +1781,8 @@ class QGISSokkia:
             return
         point = QgsPointXY(self.sp["RECHTS"], self.sp["HOCH"])
         
-        # Orientierung von Radiant zu gon konvertieren
-        orientation_gon = self.orientation * 200.0 / math.pi
+        # Orientierung von Radiant zu gon konvertieren und normalisieren
+        orientation_gon = _normalize_gon(self.orientation * 200.0 / math.pi)
 
         self._add_feature_to_mlayer(point, {
             'Punktnummer': self.sp['ID'],
@@ -2306,7 +2314,7 @@ class QGISSokkia:
         self._protokoll_add('STATIONIERUNG', '')
         self._protokoll[-1]['data'] = {
             'sp_id': sp_id, 'x': x, 'y': y, 'h': z, 'ih': ih,
-            'orientation_gon': self.orientation * 200.0 / math.pi,
+            'orientation_gon': _normalize_gon(self.orientation * 200.0 / math.pi),
             'ap_id': ap_id, 'ap_x': ap_x, 'ap_y': ap_y,
         }
         self._autosave_protokoll()
@@ -2462,7 +2470,7 @@ class QGISSokkia:
         ist (zwei Prismen mit unterschiedlicher Höhe), wird hier th = 0
         verwendet. Der Stab-Vektor wird aus den beiden 3D-Punkten gebildet.
         """
-        ha_oriented = (ha + self.orientation * 200.0 / math.pi) % 400
+        ha_oriented = _normalize_gon(ha + self.orientation * 200.0 / math.pi)
         za_rad = za * math.pi / 200.0
         ha_rad = ha_oriented * math.pi / 200.0
         hd = sd * math.sin(za_rad)

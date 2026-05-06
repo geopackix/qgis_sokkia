@@ -36,6 +36,7 @@ from qgis.core import (
 # Relative Importe des resection-Moduls
 from .resection import resection  # noqa: E402
 from .resection_extended import resection_extended  # noqa: E402
+from .resection_result_dialog import ResectionResultDialog  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -129,6 +130,7 @@ class ResectionDialog(QDialog):
         self._result_z0_rad = None   # berechnete Orientierung in Radiant
         self._observations = []      # aktuelle Beobachtungsliste
         self._standort_dlg = None    # Referenz zum standort_dialog, um ihn zu schließen
+        self._quality_info = {}      # Qualitätsinformationen aus ResectionResultDialog
 
         self.setWindowTitle("Freie Stationierung – Rückwärtsschnitt")
         self.setMinimumWidth(920)
@@ -211,7 +213,8 @@ class ResectionDialog(QDialog):
         n_meas = len(self._measurements)
         self.lbl_measure_info = QLabel(
             f"Wählen Sie für jede Messung den zugehörigen bekannten Anschlusspunkt. "
-            f"Mindestens 2 Zuordnungen mit SD und ZA sind erforderlich (≥ 3 empfohlen). "
+            f"Mindestens 2 vollständige Messungen (Hz+ZA+SD) für die Position erforderlich. "
+            f"Richtungen (nur Hz) verbessern zus\u00e4tzlich die Orientierung z\u2080. "
             f"— {n_meas} Messung(en) verfügbar."
         )
         self.lbl_measure_info.setWordWrap(True)
@@ -559,17 +562,44 @@ class ResectionDialog(QDialog):
             hz = feat.attribute(idx_hz) if idx_hz >= 0 else None
             za = feat.attribute(idx_za) if idx_za >= 0 else None
             sd = feat.attribute(idx_sd) if idx_sd >= 0 else None
-            if hz is None or za is None or sd is None:
+            if hz is None:  # Hz-Wert ist Pflicht; ZA und SD sind optional
                 continue
             try:
+                hz_val = _parse_float(hz)
+                # Helper: Prüfe ob ein Attribut gültig ist (nicht None, nicht leer, nicht 'null')
+                def is_valid_attribute(val):
+                    if val is None:
+                        return False
+                    s = str(val).strip()
+                    if s == '' or s.lower() == 'null':
+                        return False
+                    return True
+                
+                # Za und SD sind vollständig nur wenn BEIDE vorhanden und gültig
+                has_za = is_valid_attribute(za)
+                has_sd = is_valid_attribute(sd)
+                if has_za and has_sd:
+                    za_val = _parse_float(za)
+                    sd_val = _parse_float(sd)
+                    if sd_val > 0:
+                        label = f"{pnr}  |  Hz={hz_val:.4f}  ZA={za_val:.4f}  SD={sd_val:.4f}"
+                    else:
+                        za_val = None
+                        sd_val = None
+                        label = f"{pnr}  |  Hz={hz_val:.4f}  (nur Richtung)"
+                else:
+                    za_val = None
+                    sd_val = None
+                    label = f"{pnr}  |  Hz={hz_val:.4f}  (nur Richtung)"
                 self._measurements.append({
-                    "label": f"{pnr}  |  Hz={_parse_float(hz):.4f}  ZA={_parse_float(za):.4f}  SD={_parse_float(sd):.4f}",
+                    "label": label,
                     "pnr": pnr,
-                    "hz": _parse_float(hz),
-                    "za": _parse_float(za),
-                    "sd": _parse_float(sd),
+                    "hz": hz_val,
+                    "za": za_val,
+                    "sd": sd_val,
                 })
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as e:
+                print(f"[Messung laden] Fehler bei {pnr}: {e}")
                 continue
 
     def _get_ap_features(self):
@@ -698,7 +728,8 @@ class ResectionDialog(QDialog):
         for col, key in labels.items():
             item = self.table.item(row, col)
             if item:
-                item.setText(f"{m[key]:.4f}" if m else "—")
+                val = m.get(key) if m else None
+                item.setText(f"{val:.4f}" if val is not None else "—")
         
         # Automatische Zuordnung: Wenn eine Messung ausgewählt wurde,
         # versuche den passenden Anschlusspunkt basierend auf der Punktnummer zu finden
@@ -751,7 +782,8 @@ class ResectionDialog(QDialog):
         if hasattr(self, 'lbl_measure_info'):
             self.lbl_measure_info.setText(
                 f"Wählen Sie für jede Messung den zugehörigen bekannten Anschlusspunkt. "
-                f"Mindestens 2 Zuordnungen mit SD und ZA sind erforderlich (≥ 3 empfohlen). "
+                f"Mindestens 2 vollständige Messungen (Hz+ZA+SD) für die Position erforderlich. "
+                f"Richtungen (nur Hz) verbessern zus\u00e4tzlich die Orientierung z\u2080. "
                 f"— {n} Messung(en) verfügbar."
             )
         if not hasattr(self, 'table'):
@@ -857,33 +889,36 @@ class ResectionDialog(QDialog):
             QMessageBox.warning(self, "Eingabefehler", str(e))
             return
 
-        n = len(self._observations)
-        if n < 2:
+        obs = self._observations
+
+        # Aufteilung: vollständige Beobachtungen (Hz+ZA+SD) für Position,
+        # Richtungen (nur Hz) für zusätzliche Orientierungsverbesserung
+        obs_full = [o for o in obs if o["sd_m"] is not None and o["za_gon"] is not None]
+        obs_hz_only = [o for o in obs if o["sd_m"] is None or o["za_gon"] is None]
+
+        if len(obs_full) < 2:
             QMessageBox.warning(
                 self,
                 "Zu wenige Beobachtungen",
-                "Mindestens 2 Zeilen mit vollständigen Messungen (SD + ZA) "
-                "sind erforderlich.\n"
-                "Für eine statistisch abgesicherte Lösung werden ≥ 3 empfohlen."
+                f"Mindestens 2 vollständige Messungen (Hz + ZA + SD) sind für die "
+                f"Positionsberechnung erforderlich (\u2265 3 empfohlen).\n"
+                f"Aktuell: {len(obs_full)} vollständig, {len(obs_hz_only)} nur Richtung."
             )
             return
 
-        obs = self._observations
-
-        # Arrays aufbauen
-        observed_points = np.array([[o["X"], o["Y"], o["Z"]] for o in obs])
-        slant_distances = np.array([o["sd_m"] for o in obs])
+        # Arrays aufbauen (nur vollständige Beobachtungen für Resektionsberechnung)
+        observed_points = np.array([[o["X"], o["Y"], o["Z"]] for o in obs_full])
+        slant_distances = np.array([o["sd_m"] for o in obs_full])
 
         # Zenitwinkel (gon) → Höhenwinkel (rad)
         # ZA = 100 gon entspricht horizontal (v = 0)
         # ZA < 100: aufwärts (v > 0); ZA > 100: abwärts (v < 0)
         v_angles = np.array([
-            _gon_to_rad(100.0 - o["za_gon"]) for o in obs
+            _gon_to_rad(100.0 - o["za_gon"]) for o in obs_full
         ])
 
         # Horizontalrichtungen (gon) → Radiant für den Ausgleich
-        # Hz-Werte auf [0, 400) normieren (Tachymeter kann > 400 gon liefern)
-        hz_angles = np.array([_gon_to_rad(o["hz_gon"] % 400.0) for o in obs])
+        hz_angles = np.array([_gon_to_rad(o["hz_gon"] % 400.0) for o in obs_full])
 
         # Resektionsberechnung – Modus auswerten
         # Standard: bisheriger Algorithmus, Höhenwinkel-Modell, gleiche Gewichte.
@@ -893,7 +928,7 @@ class ResectionDialog(QDialog):
         try:
             if mode == "extended":
                 # Reflektorhöhen aus Tabelle, Instrumentenhöhe aus Eingabefeld
-                target_heights = np.array([o["th_m"] for o in obs])
+                target_heights = np.array([o["th_m"] for o in obs_full])
                 try:
                     ih_val = _parse_float(self.input_ih.text())
                 except ValueError:
@@ -915,7 +950,7 @@ class ResectionDialog(QDialog):
                 sigma_za_rad = _gon_to_rad(sigma_za_mgon / 1000.0)
 
                 # Zenitwinkel als ZA (rad), nicht als Höhenwinkel
-                zenith_rad = np.array([_gon_to_rad(o["za_gon"]) for o in obs])
+                zenith_rad = np.array([_gon_to_rad(o["za_gon"]) for o in obs_full])
 
                 result = resection_extended(
                     observed_points,
@@ -932,11 +967,11 @@ class ResectionDialog(QDialog):
                     sigma_za=max(sigma_za_rad, 1e-12),
                     estimate_scale_sd=self.chk_estimate_scale.isChecked(),
                     estimate_add_sd=self.chk_estimate_add.isChecked(),
-                    obs_labels=[o["name"] for o in obs],
+                    obs_labels=[o["name"] for o in obs_full],
                 )
             else:
                 # Standard-Methode: mit ih/th für korrekte Z-Bestimmung
-                target_heights_std = np.array([o["th_m"] for o in obs])
+                target_heights_std = np.array([o["th_m"] for o in obs_full])
                 try:
                     ih_val_std = _parse_float(self.input_ih.text())
                 except ValueError:
@@ -959,26 +994,50 @@ class ResectionDialog(QDialog):
 
         X_P, Y_P, Z_P = result.position
 
-        # Orientierung z₀ aus dem Ausgleich (4. Unbekannte)
-        if result.orientation is not None:
-            z0_rad = result.orientation
-            z0_gon = _normalize_gon(_rad_to_gon(z0_rad))
-        else:
-            # Fallback: post-hoc aus Hz-Messungen ableiten
-            z0_list = []
-            for o in obs:
-                t_rad = math.atan2(o["X"] - X_P, o["Y"] - Y_P)
-                t_gon = _normalize_gon(_rad_to_gon(t_rad))
-                z0_i = _normalize_gon(t_gon - o["hz_gon"])
-                z0_list.append(z0_i)
-            z0_gon = _mean_angle_gon(z0_list)
-            z0_rad = _gon_to_rad(z0_gon)
+        # Orientierung z₀ post-hoc aus ALLEN Beobachtungen (inkl. reine Richtungen)
+        # So verbessern auch Hz-only-Messungen die Orientierungsbestimmung
+        z0_list = []
+        for o in obs:
+            t_rad = math.atan2(o["X"] - X_P, o["Y"] - Y_P)
+            t_gon = _normalize_gon(_rad_to_gon(t_rad))
+            z0_i = _normalize_gon(t_gon - o["hz_gon"])
+            z0_list.append(z0_i)
+        z0_gon = _mean_angle_gon(z0_list)
+        z0_rad = _gon_to_rad(z0_gon)
 
         self._result_z0_rad = z0_rad
         self._result = result
 
-        self._display_results(result, obs, X_P, Y_P, Z_P, z0_gon)
+        # Hole Station-ID und Instrumentenhöhe aus Eingabefeldern
+        station_id = self.input_sp_id.text().strip() or "SP"
+        try:
+            ih_export = _parse_float(self.input_ih.text())
+        except (ValueError, AttributeError):
+            ih_export = 0.0
+
+        # Zeige Ergebnis-Dialog mit Qualitätseinordnung
+        result_dlg = ResectionResultDialog(
+            self, result, obs,
+            fixed_points=obs,
+            station_id=station_id,
+            instrument_height=ih_export,
+        )
+        result_dlg.result_accepted.connect(
+            lambda x, y, z, z0, details: self._on_result_accepted(x, y, z, z0, details, obs, z0_gon)
+        )
+        result_dlg.exec()
+
+    def _on_result_accepted(self, x: float, y: float, z: float, z0_rad: float, details: dict, obs: list, z0_gon: float):
+        """Wird aufgerufen, wenn der User das Ergebnis im Result-Dialog akzeptiert"""
+        # Speichere Ergebnisse
+        self._result_z0_rad = z0_rad
+        
+        # Zeige Ergebnisse an
+        self._display_results(self._result, obs, x, y, z, z0_gon)
         self.btn_use.setEnabled(True)
+        
+        # Speichere Quality-Informationen
+        self._quality_info = details
 
     def _display_results(self, result, obs, X_P, Y_P, Z_P, z0_gon):
         """Füllt alle Ergebniswidgets mit den berechneten Werten."""
@@ -1022,13 +1081,14 @@ class ResectionDialog(QDialog):
                 dh = 1e-10
             za_calc_gon = 100.0 - _rad_to_gon(math.atan2(diff[2], dh))
 
-            # Residuen (Verbesserungen)
-            sd_res = o["sd_m"] - sd_calc
-            za_res = o["za_gon"] - za_calc_gon
-
             # Richtungswinkel t (berechneter Sollazimut)
             t_rad = math.atan2(diff[0], diff[1])
             t_gon = _normalize_gon(_rad_to_gon(t_rad))
+
+            # Residuen – nur wenn vollständige Messung
+            is_full = o["sd_m"] is not None and o["za_gon"] is not None
+            sd_res = (o["sd_m"] - sd_calc) if is_full else None
+            za_res = (o["za_gon"] - za_calc_gon) if is_full else None
 
             # Hz-Residuum
             hz_res_gon = _normalize_gon(t_gon - z0_gon - o["hz_gon"])
@@ -1038,10 +1098,10 @@ class ResectionDialog(QDialog):
 
             items = [
                 o["name"],
-                f"{sd_calc:.4f}",
-                f"{sd_res:+.4f}",
-                f"{za_calc_gon:.4f}",
-                f"{za_res:+.4f}",
+                f"{sd_calc:.4f}" if is_full else "—",
+                f"{sd_res:+.4f}" if sd_res is not None else "—",
+                f"{za_calc_gon:.4f}" if is_full else "—",
+                f"{za_res:+.4f}" if za_res is not None else "—",
                 f"{t_gon:.4f}",
             ]
             for col, text in enumerate(items):
@@ -1051,11 +1111,13 @@ class ResectionDialog(QDialog):
 
             # Auffällige Residuen rot/orange hinterlegen
             bg_color = None
-            if abs(hz_res_mgon) > THRESHOLD_HZ_ERROR or abs(sd_res * 1000) > THRESHOLD_SD_ERROR or abs(za_res * 1000) > THRESHOLD_ZA_ERROR:
-                # ERROR: Tiefrot
+            if abs(hz_res_mgon) > THRESHOLD_HZ_ERROR or \
+               (sd_res is not None and abs(sd_res * 1000) > THRESHOLD_SD_ERROR) or \
+               (za_res is not None and abs(za_res * 1000) > THRESHOLD_ZA_ERROR):
                 bg_color = QColor(255, 100, 100)
-            elif abs(hz_res_mgon) > THRESHOLD_HZ_WARN or abs(sd_res * 1000) > THRESHOLD_SD_WARN or abs(za_res * 1000) > THRESHOLD_ZA_WARN:
-                # WARN: Hellorange
+            elif abs(hz_res_mgon) > THRESHOLD_HZ_WARN or \
+                 (sd_res is not None and abs(sd_res * 1000) > THRESHOLD_SD_WARN) or \
+                 (za_res is not None and abs(za_res * 1000) > THRESHOLD_ZA_WARN):
                 bg_color = QColor(255, 200, 150)
 
             if bg_color is not None:
@@ -1080,8 +1142,9 @@ class ResectionDialog(QDialog):
             if dh < 1e-10:
                 dh = 1e-10
             za_calc_gon = 100.0 - _rad_to_gon(math.atan2(diff[2], dh))
-            sd_res = o["sd_m"] - sd_calc
-            za_res = o["za_gon"] - za_calc_gon
+            is_full = o["sd_m"] is not None and o["za_gon"] is not None
+            sd_res = (o["sd_m"] - sd_calc) if is_full else None
+            za_res = (o["za_gon"] - za_calc_gon) if is_full else None
             t_rad = math.atan2(diff[0], diff[1])
             t_gon = _normalize_gon(_rad_to_gon(t_rad))
             hz_res_gon = _normalize_gon(t_gon - z0_gon - o["hz_gon"])
@@ -1089,19 +1152,19 @@ class ResectionDialog(QDialog):
                 hz_res_gon -= 400.0
             hz_res_mgon = hz_res_gon * 1000.0
             points.append({
-                'name':     o['name'],
-                'ap_x':     o['X'],
-                'ap_y':     o['Y'],
-                'ap_z':     o['Z'],
-                'hz_gon':   o['hz_gon'],
-                'za_gon':   o['za_gon'],
-                'sd_m':     o['sd_m'],
-                'sd_calc':  sd_calc,
-                'sd_res_mm': sd_res * 1000.0,
-                'za_calc':  za_calc_gon,
-                'za_res_mgon': za_res * 1000.0,
-                't_gon':    t_gon,
-                'hz_res_mgon': hz_res_mgon,
+                'name':          o['name'],
+                'ap_x':          o['X'],
+                'ap_y':          o['Y'],
+                'ap_z':          o['Z'],
+                'hz_gon':        o['hz_gon'],
+                'za_gon':        o['za_gon'],
+                'sd_m':          o['sd_m'],
+                'sd_calc':       sd_calc if is_full else None,
+                'sd_res_mm':     (sd_res * 1000.0) if sd_res is not None else None,
+                'za_calc':       za_calc_gon if is_full else None,
+                'za_res_mgon':   (za_res * 1000.0) if za_res is not None else None,
+                't_gon':         t_gon,
+                'hz_res_mgon':   hz_res_mgon,
             })
 
         mode = self.mode_combo.currentData() if hasattr(self, "mode_combo") else "standard"
@@ -1110,12 +1173,18 @@ class ResectionDialog(QDialog):
             'sigma0':     self._result.sigma0,
             'dof':        self._result.dof,
             'redundancy': self._result.redundancy,
-            'z0_gon':     z0_gon,
             'points':     points,
+            'z0_gon':     z0_gon,
             'ih':         _parse_float(self.input_ih.text()),  # Instrumentenhöhe
             'sp_id':      self.input_sp_id.text().strip() or "SP",  # Standpunktnummer
             'mode':       mode,  # "standard" oder "extended"
         }
+        
+        # Qualitätsinformationen aus ResectionResultDialog hinzufügen
+        if self._quality_info:
+            details['quality_class'] = self._quality_info.get('quality_class')
+            details['quality_rms_residual'] = self._quality_info.get('rms_residual')
+            details['quality_num_observations'] = self._quality_info.get('num_observations')
         # Erweiterte Parameter nur im Modus 'extended' hinzufügen
         if mode == "extended":
             details['scale_sd'] = getattr(self._result, 'scale_sd', None)
