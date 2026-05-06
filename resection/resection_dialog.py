@@ -129,6 +129,7 @@ class ResectionDialog(QDialog):
         self._result = None          # ResectionResult-Objekt nach Berechnung
         self._result_z0_rad = None   # berechnete Orientierung in Radiant
         self._observations = []      # aktuelle Beobachtungsliste
+        self._standort_dlg = None    # Referenz zum standort_dialog, um ihn zu schließen
 
         self.setWindowTitle("Freie Stationierung – Rückwärtsschnitt")
         self.setMinimumWidth(920)
@@ -258,9 +259,16 @@ class ResectionDialog(QDialog):
 
         main.addWidget(grp_assign)
 
-        # ── 2b. Instrumentenhöhe ──────────────────────────────────────────────
+        # ── 2b. Standpunktnummer & Instrumentenhöhe ───────────────────────────
         ih_row = QHBoxLayout()
         ih_row.addStretch()
+        ih_row.addWidget(QLabel("Standpunktnummer (SP-ID):"))
+        self.input_sp_id = QLineEdit()
+        self.input_sp_id.setText("SP")
+        self.input_sp_id.setMaximumWidth(80)
+        self.input_sp_id.setToolTip("Bezeichnung des Standpunkts")
+        ih_row.addWidget(self.input_sp_id)
+        ih_row.addSpacing(20)
         ih_row.addWidget(QLabel("Instrumentenhöhe (ih):"))
         self.input_ih = QLineEdit()
         self.input_ih.setText("0.0")
@@ -977,7 +985,7 @@ class ResectionDialog(QDialog):
         self.lbl_sx.setText(f"σX: {std[0]:.4f} m")
         self.lbl_sy.setText(f"σY: {std[1]:.4f} m")
         self.lbl_sz.setText(f"σZ: {std[2]:.4f} m")
-        self.lbl_sigma0.setText(f"σ₀: {result.sigma0:.4f} m")
+        self.lbl_sigma0.setText(f"σ₀: {result.sigma0:.4f}")
         self.lbl_dof.setText(f"Freiheitsgrade f: {result.dof}")
 
         # Residualtabelle füllen
@@ -1098,6 +1106,7 @@ class ResectionDialog(QDialog):
             'z0_gon':     z0_gon,
             'points':     points,
             'ih':         _parse_float(self.input_ih.text()),  # Instrumentenhöhe
+            'sp_id':      self.input_sp_id.text().strip() or "SP",  # Standpunktnummer
             'mode':       mode,  # "standard" oder "extended"
         }
         # Erweiterte Parameter nur im Modus 'extended' hinzufügen
@@ -1124,4 +1133,7 @@ class ResectionDialog(QDialog):
             float(X_P), float(Y_P), float(Z_P),
             float(self._result_z0_rad), details
         )
+        # Standpunkt-Dialog schließen, wenn vorhanden
+        if self._standort_dlg:
+            self._standort_dlg.hide()
         self.accept()

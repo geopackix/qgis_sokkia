@@ -24,10 +24,11 @@ from qgis.PyQt.QtGui import QIcon, QColor
 import sip
 import os
 import json
+import math
 
 from datetime import datetime
 from qgis.gui import QgsMapCanvas, QgsRubberBand, QgsMapToolEmitPoint, QgsMapLayerComboBox, QgsMapTool, QgsSnapIndicator
-from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsMapLayerProxyModel, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointLocator, QgsRuleBasedRenderer, QgsSymbol, QgsMarkerSymbol
+from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsMapLayerProxyModel, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsPointLocator, QgsRuleBasedRenderer, QgsSymbol, QgsMarkerSymbol, QgsPalLayerSettings, QgsVectorLayerSimpleLabeling
 from qgis.PyQt.QtWidgets import QAction, QInputDialog, QDialog, QVBoxLayout, QFormLayout, QLabel, QLineEdit, QDialogButtonBox, QFileDialog
 import serial
 import serial.tools.list_ports
@@ -42,6 +43,8 @@ from .transfer_dialog import TransferDialog
 from .standort_dialog import StandortDialog
 from .zielpunkt_dialog import ZielpunktDialog
 from .fernsteuerung_dialog import FernsteuerungDialog
+from .protokoll_viewer_dialog import ProtokollViewerDialog
+from .test_measurement_dialog import TestMeasurementDialog
 from .absteckung_dialog import AbsteckungDialog
 from .kanalmessstab_dialog import KanalmessstabDialog
 
@@ -232,10 +235,7 @@ class QGISSokkia:
         #self.rubber_band = QgsRubberBand(self.canvas, QgsWkbTypes.LineGeometry)
         
         #Layer
-        self.mlayer = None
-        self.splayer = None
-        self.aplayer = None
-        self.hmlayer = None         # HilfsMesspunkte (Kanalmessstab-Prismen)
+        self.mlayer = None            # Einheitlicher Punktlayer für alle Punkt-Typen
         self.kanal_line_layer = None  # KanalmessstabLinien (Visualisierung)
         self._kanal_rubber_band = None  # Live-Rubberband während Dialog offen
         self._measure_queue = queue.Queue()
@@ -528,10 +528,7 @@ class QGISSokkia:
                 
 
                 # add temp layer with layername
-                self.addTempLayer(f"Messungen-{datetime.now().strftime('%d%m%y-%H%M')}")
-                self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
-                self.addApTempLayer(f"APs-{datetime.now().strftime('%d%m%y-%H%M')}")
-                self.addHmTempLayer(f"HilfsMesspunkte-{datetime.now().strftime('%d%m%y-%H%M')}")
+                self.addTempLayer(f"Punkte-{datetime.now().strftime('%d%m%y-%H%M')}")
                 self.addKanalLineLayer(f"KanalmessstabLinien-{datetime.now().strftime('%d%m%y-%H%M')}")
                 
                 self._apply_connection_state(connected=True, initialized=True)
@@ -652,15 +649,32 @@ class QGISSokkia:
         return os.path.join(self.plugin_dir, 'ap.qml')
 
     def _init_rule_based_renderer(self):
-        """Initialisiert einen regelbasierten Renderer auf dem Messlayer
-        mit einer Fallback-Regel (ELSE) basierend auf styles/messung.qml."""
+        """Initialisiert einen regelbasierten Renderer auf dem einheitlichen Punktlayer
+        mit Regeln für Stationierung, Anschlusspunkt und einer Fallback-Regel (ELSE)."""
         if self.mlayer is None:
             return
-        # Lade das Default-Symbol aus der QML-Datei in einen temp-Layer
+        # Lade das Default-Symbol aus der QML-Datei
         default_symbol = self._load_symbol_from_qml(None)
         # Regelbasierten Renderer erstellen
         root_rule = QgsRuleBasedRenderer.Rule(None)
-        # ELSE-Regel (Fallback für alle unbekannten Typen)
+        
+        # Regel für Stationierung (SP)
+        sp_qml_path = self._get_station_style_qml_path()
+        sp_symbol = self._load_symbol_from_qml_path(sp_qml_path)
+        sp_rule = QgsRuleBasedRenderer.Rule(sp_symbol)
+        sp_rule.setLabel('Stationierung')
+        sp_rule.setFilterExpression('"Typ" = \'Stationierung\'')
+        root_rule.appendChild(sp_rule)
+        
+        # Regel für Anschlusspunkte (AP)
+        ap_qml_path = self._get_ap_style_qml_path()
+        ap_symbol = self._load_symbol_from_qml_path(ap_qml_path)
+        ap_rule = QgsRuleBasedRenderer.Rule(ap_symbol)
+        ap_rule.setLabel('Anschlusspunkt')
+        ap_rule.setFilterExpression('"Typ" = \'Anschlusspunkt\'')
+        root_rule.appendChild(ap_rule)
+        
+        # ELSE-Regel (Fallback für Messungen und Hilfsmessungen)
         else_rule = QgsRuleBasedRenderer.Rule(default_symbol.clone())
         else_rule.setLabel('Standard (Messung)')
         else_rule.setIsElse(True)
@@ -668,6 +682,15 @@ class QGISSokkia:
         renderer = QgsRuleBasedRenderer(root_rule)
         self.mlayer.setRenderer(renderer)
         self._active_style_rules = set()  # Track welche Prefixe schon Regeln haben
+
+    def _load_symbol_from_qml_path(self, qml_path):
+        """Lädt ein QgsMarkerSymbol direkt aus einem QML-Pfad."""
+        tmp_layer = QgsVectorLayer('Point?crs=EPSG:4326', '_tmp_style', 'memory')
+        tmp_layer.loadNamedStyle(qml_path)
+        renderer = tmp_layer.renderer()
+        if renderer and renderer.symbol():
+            return renderer.symbol().clone()
+        return QgsMarkerSymbol.createSimple({'name': 'cross2', 'size': '3', 'color': '152,125,183,255'})
 
     def _load_symbol_from_qml(self, point_type_label, point_type_meta=None):
         """Lädt ein QgsMarkerSymbol aus einer QML-Datei.
@@ -728,8 +751,8 @@ class QGISSokkia:
         if not isinstance(renderer, QgsRuleBasedRenderer):
             return
         root_rule = renderer.rootRule()
-        # Filter: "Punktnummer" LIKE 'prefix%'
-        filter_expr = f'"Punktnummer" LIKE \'{matched_prefix}%\''
+        # Filter: Messung mit spezifischem Prefix
+        filter_expr = f'"Typ" = \'Messung\' AND "Punktnummer" LIKE \'{matched_prefix}%\''
         new_rule = QgsRuleBasedRenderer.Rule(symbol)
         new_rule.setLabel(matched_label)
         new_rule.setFilterExpression(filter_expr)
@@ -738,104 +761,143 @@ class QGISSokkia:
         self._active_style_rules.add(matched_prefix)
         self.mlayer.triggerRepaint()
 
+    def _configure_labeling_by_type(self):
+        """Konfiguriert das Labeling basierend auf pointTypes.json."""
+        if self.mlayer is None:
+            return
+        
+        try:
+            # pointTypes.json laden
+            plugin_dir = os.path.dirname(__file__)
+            config_path = os.path.join(plugin_dir, 'pointTypes.json')
+            
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            
+            point_types = config.get('PointPrefixNumbers', {})
+            
+            # Labeling mit QgsPalLayerSettings konfigurieren
+            label_settings = QgsPalLayerSettings()
+            
+            # Standardfeld für Label (Fallback)
+            label_field = 'Punktnummer'
+            label_expression = None
+            
+            # Wenn definiert, das erste verfügbare label_expression oder label_field aus pointTypes verwenden
+            for pt_type, pt_data in point_types.items():
+                if isinstance(pt_data, dict):
+                    # Expression hat Priorität
+                    if 'label_expression' in pt_data:
+                        label_expression = pt_data['label_expression']
+                        break
+                    elif 'label_field' in pt_data:
+                        label_field = pt_data['label_field']
+                        break
+            
+            # Label-Einstellungen konfigurieren
+            if label_expression:
+                # Expression-basiertes Labeling
+                label_settings.isExpression = True
+                label_settings.expressionString = label_expression
+            else:
+                # Feldname-basiertes Labeling
+                label_settings.fieldName = label_field
+                label_settings.isExpression = False
+            
+            label_settings.placement = 0  # QgsPalLayerSettings.OverPoint
+            label_settings.enabled = True
+            
+            # Anwenden auf den Layer
+            labeling = QgsVectorLayerSimpleLabeling(label_settings)
+            self.mlayer.setLabeling(labeling)
+            self.mlayer.setLabelsVisible(True)
+            
+        except Exception as e:
+            print(f"[Labeling-Konfiguration] Fehler beim Laden von pointTypes.json: {e}")
+
     def addTempLayer(self, name):
+        """Erzeugt den einheitlichen Punktlayer mit allen Feldern für
+        Messungen, Stationierungen, Anschlusspunkte und Hilfsmessungen."""
         
-        self.mlayer = QgsVectorLayer("Point?crs="+self.crsName, name, "memory") #EPSG:25832
+        self.mlayer = QgsVectorLayer("Point?crs="+self.crsName, name, "memory")
         
-        attr_pkno = QgsField('Punktnummer', QVariant.String)
-        attr_sp = QgsField('Standpunkt', QVariant.String)
-        attr_datetime = QgsField('Recordtime', QVariant.DateTime)
-        attr_ih = QgsField('ih', QVariant.Double)
-        attr_th = QgsField('th', QVariant.Double)
+        fields = [
+            QgsField('Punktnummer', QVariant.String),
+            QgsField('Typ', QVariant.String),           # Messung / Stationierung / Anschlusspunkt / Hilfsmessung
+            QgsField('Standpunkt', QVariant.String),
+            QgsField('Recordtime', QVariant.DateTime),
+            QgsField('ih', QVariant.Double),
+            QgsField('orientation', QVariant.Double),   # z₀ in gon (für Stationierung)
+            QgsField('th', QVariant.Double),
+            # Rohe Messungen
+            QgsField('mess_sd', QVariant.Double),
+            QgsField('mess_za', QVariant.Double),
+            QgsField('mess_ha', QVariant.Double),
+            # Berechnete Koordinaten (aus Messung)
+            QgsField('calc_hd', QVariant.Double),
+            QgsField('calc_x', QVariant.Double),
+            QgsField('calc_y', QVariant.Double),
+            QgsField('calc_z', QVariant.Double),
+            # Bekannte Koordinaten (Festpunkte, Anschlusspunkte, Stationierung)
+            QgsField('known_x', QVariant.Double),
+            QgsField('known_y', QVariant.Double),
+            QgsField('known_z', QVariant.Double),
+            # Prismenkonstante
+            QgsField('prism_const', QVariant.Double),
+            # Residuen (Anschlusspunkte aus Freier Stationierung)
+            QgsField('vHz_mgon', QVariant.Double),
+            QgsField('vSD_mm', QVariant.Double),
+            QgsField('vZA_mgon', QVariant.Double),
+            # Berechnete Messwerte (AP)
+            QgsField('SD_ber_m', QVariant.Double),
+            QgsField('ZA_ber_gon', QVariant.Double),
+            QgsField('t_gon', QVariant.Double),
+            # Zuordnung
+            QgsField('Anschluss', QVariant.String),     # Stationierung: zugehöriger AP
+            QgsField('Zielpunkt', QVariant.String),     # Hilfsmessung: zugehöriger Zielpunkt
+        ]
         
-        attr_messung_sd = QgsField('mess_sd', QVariant.Double)
-        attr_messung_za = QgsField('mess_za', QVariant.Double)
-        attr_messung_ha = QgsField('mess_ha', QVariant.Double)
-        calc_hd = QgsField('calc_hd', QVariant.Double)
-        calc_x = QgsField('calc_x', QVariant.Double)
-        calc_y = QgsField('calc_y', QVariant.Double)
-        calc_z = QgsField('calc_z', QVariant.Double)
-        prismConst = QgsField('prism_const', QVariant.Double)
-        
-        self.mlayer.dataProvider().addAttributes([attr_pkno,attr_sp,attr_datetime,attr_ih,attr_th,attr_messung_sd,attr_messung_za,attr_messung_ha, calc_hd, calc_x, calc_y, calc_z,prismConst])
+        self.mlayer.dataProvider().addAttributes(fields)
         self.mlayer.updateFields()
         
         # Labeling aus der Default-QML laden (setzt auch Renderer, den wir danach überschreiben)
         default_qml = self._get_style_qml_path(None)
         self.mlayer.loadNamedStyle(default_qml)
         # Regelbasierten Renderer initialisieren (überschreibt den aus QML geladenen SingleSymbol-Renderer)
-        self._init_rule_based_renderer() 
+        self._init_rule_based_renderer()
+        # Labeling basierend auf pointTypes.json konfigurieren
+        self._configure_labeling_by_type() 
         
     
+    def _add_feature_to_mlayer(self, point: QgsPointXY, field_values: dict):
+        """Fügt ein Feature mit den gegebenen Feldwerten in den einheitlichen Punktlayer ein.
+        
+        Args:
+            point: Die Geometrie als QgsPointXY
+            field_values: Dict mit {Feldname: Wert} – nur gesetzte Felder, Rest bleibt NULL
+        """
+        flds = self.mlayer.fields()
+        feat = QgsFeature(flds)
+        feat.setGeometry(QgsGeometry.fromPointXY(point))
+        attrs = [None] * flds.count()
+        for name, val in field_values.items():
+            idx = flds.indexFromName(name)
+            if idx >= 0 and val is not None:
+                attrs[idx] = val
+        feat.setAttributes(attrs)
+        self.mlayer.dataProvider().addFeature(feat)
+
     def addSpTempLayer(self, name):
-        
-        self.splayer = QgsVectorLayer("Point?crs="+self.crsName, name, "memory")
-        
-        attr_pkno = QgsField('Punktnummer', QVariant.String)
-        attr_apno = QgsField('Anschluss', QVariant.String)
-        attr_datetime = QgsField('Recordtime', QVariant.DateTime)
-        attr_ih = QgsField('ih', QVariant.Double)
-        x = QgsField('x', QVariant.Double)
-        y = QgsField('y', QVariant.Double)
-        z = QgsField('z', QVariant.Double)
-        
-        # Lade den Style aus pointTypes.json für den Standpunkt-Typ
-        qml_file = self._get_station_style_qml_path()
-        self.splayer.loadNamedStyle(qml_file)
-        self.splayer.dataProvider().addAttributes([attr_pkno,attr_datetime,attr_ih,x,y,z,attr_apno])
-        self.splayer.updateFields()  
+        """Nicht mehr benötigt – Standpunkte werden im einheitlichen mlayer gespeichert."""
+        pass
         
     def addApTempLayer(self, name):
-        
-        self.aplayer = QgsVectorLayer("Point?crs="+self.crsName, name, "memory")
-        
-        attr_pkno = QgsField('Punktnummer', QVariant.String)
-        attr_datetime = QgsField('Recordtime', QVariant.DateTime)
-        x = QgsField('x', QVariant.Double)
-        y = QgsField('y', QVariant.Double)
-        z = QgsField('z', QVariant.Double)
-        # Klaffungen / Residuen aus der Freien Stationierung
-        vHz = QgsField('vHz_mgon', QVariant.Double)
-        vSD = QgsField('vSD_mm', QVariant.Double)
-        vZA = QgsField('vZA_mgon', QVariant.Double)
-        hz_gon = QgsField('Hz_gon', QVariant.Double)
-        za_gon = QgsField('ZA_gon', QVariant.Double)
-        sd_m = QgsField('SD_m', QVariant.Double)
-        sd_calc = QgsField('SD_ber_m', QVariant.Double)
-        za_calc = QgsField('ZA_ber_gon', QVariant.Double)
-        t_gon = QgsField('t_gon', QVariant.Double)
-        station = QgsField('Station', QVariant.String)
-
-        # Lade den Style aus pointTypes.json für den Anschlusspunkt-Typ
-        qml_file = self._get_ap_style_qml_path()
-        self.aplayer.loadNamedStyle(qml_file)
-        self.aplayer.dataProvider().addAttributes([
-            attr_pkno, attr_datetime, x, y, z,
-            vHz, vSD, vZA, hz_gon, za_gon, sd_m, sd_calc, za_calc, t_gon, station,
-        ])
-        self.aplayer.updateFields()  
+        """Nicht mehr benötigt – Anschlusspunkte werden im einheitlichen mlayer gespeichert."""
+        pass
 
     def addHmTempLayer(self, name):
-        """Layer für Hilfsmesspunkte (z.B. die zwei Prismen am Kanalmessstab)."""
-        self.hmlayer = QgsVectorLayer("PointZ?crs=" + self.crsName, name, "memory")
-
-        attr_pkno = QgsField('Punktnummer', QVariant.String)
-        attr_sp = QgsField('Standpunkt', QVariant.String)
-        attr_datetime = QgsField('Recordtime', QVariant.DateTime)
-        attr_typ = QgsField('Typ', QVariant.String)         # 'P1' / 'P2' / ...
-        attr_zugehoerig = QgsField('Zielpunkt', QVariant.String)
-        x = QgsField('x', QVariant.Double)
-        y = QgsField('y', QVariant.Double)
-        z = QgsField('z', QVariant.Double)
-        sd = QgsField('mess_sd', QVariant.Double)
-        za = QgsField('mess_za', QVariant.Double)
-        ha = QgsField('mess_ha', QVariant.Double)
-
-        self.hmlayer.dataProvider().addAttributes([
-            attr_pkno, attr_sp, attr_datetime, attr_typ, attr_zugehoerig,
-            x, y, z, sd, za, ha,
-        ])
-        self.hmlayer.updateFields()
+        """Nicht mehr benötigt – Hilfsmessungen werden im einheitlichen mlayer gespeichert."""
+        pass
 
     def addKanalLineLayer(self, name):
         """Linienlayer für die Visualisierung des Kanalmessstabs (P1 → P2 → Ziel)."""
@@ -870,8 +932,7 @@ class QGISSokkia:
         # Gruppe anlegen (wird am Ende des Layer-Baums eingefügt)
         group = root.addGroup(group_name)
         self._layer_group = group
-        for layer in (self.mlayer, self.splayer, self.aplayer,
-                      self.hmlayer, self.kanal_line_layer):
+        for layer in (self.mlayer, self.kanal_line_layer):
             if layer is None:
                 continue
             proj.addMapLayer(layer, False)
@@ -906,10 +967,7 @@ class QGISSokkia:
         self.crsName = crs.authid() if crs.isValid() else "EPSG:25832"
         self.orientationArrow = OrientationArrow(self.crsName)
 
-        self.addTempLayer(f"Messungen-{datetime.now().strftime('%d%m%y-%H%M')}")
-        self.addSpTempLayer(f"Station-{datetime.now().strftime('%d%m%y-%H%M')}")
-        self.addApTempLayer(f"APs-{datetime.now().strftime('%d%m%y-%H%M')}")
-        self.addHmTempLayer(f"HilfsMesspunkte-{datetime.now().strftime('%d%m%y-%H%M')}")
+        self.addTempLayer(f"Punkte-{datetime.now().strftime('%d%m%y-%H%M')}")
         self.addKanalLineLayer(f"KanalmessstabLinien-{datetime.now().strftime('%d%m%y-%H%M')}")
 
         group_name = f"QGISSokkia-{datetime.now().strftime('%d%m%y-%H%M')}"
@@ -1672,9 +1730,22 @@ class QGISSokkia:
                     do_save = False
 
             if do_save:
-                feature.setAttributes([save_id, self.sp['ID'], QDateTime.currentDateTime(),
-                                        self.sp['ih'], th, sd, za, ha, hd, x, y, z, prism_constant])
-                self.mlayer.dataProvider().addFeature(feature)
+                self._add_feature_to_mlayer(point, {
+                    'Punktnummer': save_id,
+                    'Typ': 'Messung',
+                    'Standpunkt': self.sp['ID'],
+                    'Recordtime': QDateTime.currentDateTime(),
+                    'ih': self.sp['ih'],
+                    'th': th,
+                    'mess_sd': sd,
+                    'mess_za': za,
+                    'mess_ha': ha,
+                    'calc_hd': hd,
+                    'calc_x': x,
+                    'calc_y': y,
+                    'calc_z': z,
+                    'prism_const': prism_constant,
+                })
                 print('Punkt gespeichert:', save_id)
                 # Regelbasierten Stil prüfen/erweitern falls neuer Punkttyp
                 self._ensure_rule_for_point(save_id)
@@ -1697,91 +1768,58 @@ class QGISSokkia:
             print(e)
     
     def addStation(self):
-        if self.splayer is None:
-            self.iface.messageBar().pushWarning("Standpunkt", "Kein Stations-Layer vorhanden – bitte zuerst verbinden.")
+        if self.mlayer is None:
+            self.iface.messageBar().pushWarning("Standpunkt", "Kein Punkt-Layer vorhanden – bitte zuerst verbinden.")
             return
         point = QgsPointXY(self.sp["RECHTS"], self.sp["HOCH"])
+        
+        # Orientierung von Radiant zu gon konvertieren
+        orientation_gon = self.orientation * 200.0 / math.pi
 
-        feature = QgsFeature(self.splayer.fields())
-        feature.setGeometry(QgsGeometry.fromPointXY(point))
-        feature.setAttributes([self.sp['ID'], QDateTime.currentDateTime(), self.sp['ih'], self.sp["RECHTS"], self.sp["HOCH"], self.sp["H"], self.ap['ID']])
-
-        self.splayer.dataProvider().addFeature(feature)
+        self._add_feature_to_mlayer(point, {
+            'Punktnummer': self.sp['ID'],
+            'Typ': 'Stationierung',
+            'Recordtime': QDateTime.currentDateTime(),
+            'ih': self.sp['ih'],
+            'orientation': orientation_gon,
+            'known_x': self.sp["RECHTS"],
+            'known_y': self.sp["HOCH"],
+            'known_z': self.sp["H"],
+            'Anschluss': self.ap.get('ID', ''),
+        })
         print('Station gespeichert')
 
-        self.splayer.updateExtents()
-        self.splayer.triggerRepaint()
+        self.mlayer.updateExtents()
+        self.mlayer.triggerRepaint()
         
     def addAp(self):
-        # Ziel-Layer: wenn der Benutzer einen passenden Point-Layer aktiv hat,
-        # verwenden wir diesen als Ziel für den Anschlusspunkt. Ansonsten
-        # wird der interne temporäre `aplayer` genutzt.
-        target_layer = None
-        try:
-            layer = self.iface.activeLayer()
-            if layer is not None and hasattr(layer, 'wkbType') and QgsWkbTypes.isPointType(layer.wkbType()):
-                target_layer = layer
-        except Exception:
-            target_layer = None
-
-        if target_layer is None:
-            # Fallback auf internen AP-Layer
-            target_layer = self.aplayer
-
-        if target_layer is None:
+        """Speichert einen Anschlusspunkt im einheitlichen Punktlayer."""
+        if self.mlayer is None:
             return
 
         point = QgsPointXY(self.ap["RECHTS"], self.ap["HOCH"])
-        feat = QgsFeature(target_layer.fields()) if target_layer.fields() is not None else QgsFeature()
-        feat.setGeometry(QgsGeometry.fromPointXY(point))
+        self._add_feature_to_mlayer(point, {
+            'Punktnummer': self.ap.get('ID'),
+            'Typ': 'Anschlusspunkt',
+            'Recordtime': QDateTime.currentDateTime(),
+            'known_x': self.ap.get('RECHTS'),
+            'known_y': self.ap.get('HOCH'),
+            'known_z': self.ap.get('H'),
+        })
+        print('Anschlusspunkt gespeichert')
 
-        # Attribute setzen, wenn Felder vorhanden sind (nach Namen suchen)
-        flds = target_layer.fields()
-        attrs = [None] * flds.count()
-        # Punkt-ID
-        idx_id = flds.indexFromName('Punktnummer')
-        if idx_id < 0:
-            idx_id = flds.indexFromName('ID')
-        if idx_id < 0:
-            idx_id = flds.indexFromName(target_layer.displayField()) if target_layer.displayField() else -1
-        if idx_id >= 0:
-            attrs[idx_id] = self.ap.get('ID')
-        # Recordtime
-        idx_rt = flds.indexFromName('Recordtime')
-        if idx_rt >= 0:
-            attrs[idx_rt] = QDateTime.currentDateTime()
-        # Koordinatenfelder
-        idx_x = flds.indexFromName('x')
-        idx_y = flds.indexFromName('y')
-        idx_z = flds.indexFromName('z')
-        if idx_x >= 0:
-            attrs[idx_x] = self.ap.get('RECHTS')
-        if idx_y >= 0:
-            attrs[idx_y] = self.ap.get('HOCH')
-        if idx_z >= 0:
-            attrs[idx_z] = self.ap.get('H')
-
-        # Fallback: wenn es überhaupt keine Felder gibt, setAttributes wird ignoriert
-        try:
-            feat.setAttributes(attrs)
-        except Exception:
-            pass
-
-        target_layer.dataProvider().addFeature(feat)
-        print('Anschlusspunkt gespeichert in', target_layer.name())
-
-        target_layer.updateExtents()
-        target_layer.triggerRepaint()
+        self.mlayer.updateExtents()
+        self.mlayer.triggerRepaint()
 
     def _save_resection_aps(self, resection_details: dict):
-        """Speichert alle Anschlusspunkte der Freien Stationierung mit Klaffungen im AP-Layer."""
-        if self.aplayer is None or resection_details is None:
+        """Speichert alle Anschlusspunkte der Freien Stationierung mit Klaffungen im Punktlayer."""
+        if self.mlayer is None or resection_details is None:
             return
         pts = resection_details.get('points', [])
         if not pts:
             return
         sp_id = self.sp.get('ID', '?')
-        flds = self.aplayer.fields()
+        flds = self.mlayer.fields()
         new_feats = []
         for pt in pts:
             feat = QgsFeature(flds)
@@ -1789,20 +1827,21 @@ class QGISSokkia:
             attrs = [None] * flds.count()
             field_map = {
                 'Punktnummer': pt.get('name'),
+                'Typ':         'Anschlusspunkt',
+                'Standpunkt':  sp_id,
                 'Recordtime':  QDateTime.currentDateTime(),
-                'x':           pt.get('ap_x'),
-                'y':           pt.get('ap_y'),
-                'z':           pt.get('ap_z'),
+                'known_x':     pt.get('ap_x'),
+                'known_y':     pt.get('ap_y'),
+                'known_z':     pt.get('ap_z'),
+                'mess_sd':     pt.get('sd_m'),
+                'mess_za':     pt.get('za_gon'),
+                'mess_ha':     pt.get('hz_gon'),
                 'vHz_mgon':    pt.get('hz_res_mgon'),
                 'vSD_mm':      pt.get('sd_res_mm'),
                 'vZA_mgon':    pt.get('za_res_mgon'),
-                'Hz_gon':      pt.get('hz_gon'),
-                'ZA_gon':      pt.get('za_gon'),
-                'SD_m':        pt.get('sd_m'),
                 'SD_ber_m':    pt.get('sd_calc'),
                 'ZA_ber_gon':  pt.get('za_calc'),
                 't_gon':       pt.get('t_gon'),
-                'Station':     sp_id,
             }
             for name, val in field_map.items():
                 idx = flds.indexFromName(name)
@@ -1810,10 +1849,10 @@ class QGISSokkia:
                     attrs[idx] = val
             feat.setAttributes(attrs)
             new_feats.append(feat)
-        self.aplayer.dataProvider().addFeatures(new_feats)
-        self.aplayer.updateExtents()
-        self.aplayer.triggerRepaint()
-        print(f'{len(new_feats)} Anschlusspunkte (Freie Stationierung) in AP-Layer gespeichert')
+        self.mlayer.dataProvider().addFeatures(new_feats)
+        self.mlayer.updateExtents()
+        self.mlayer.triggerRepaint()
+        print(f'{len(new_feats)} Anschlusspunkte (Freie Stationierung) in Punkt-Layer gespeichert')
     
     def _connect_line_layer_signals(self, layer):
         """Verbindet selectionChanged des aktuellen Linienlayers zur Live-Anzeige."""
@@ -2110,7 +2149,128 @@ class QGISSokkia:
     def mesaure_stop(self):
         print('Messung stoppen')
         command = bytes([0x12])
-        self.serial.write(command) 
+        self.serial.write(command)
+
+    def open_test_measurement_dialog(self):
+        """Öffnet den Dialog für Test-Messungen."""
+        # Überprüfung: Ist ein Standpunkt gesetzt?
+        if not self.sp or self.sp.get('ID') == "SP":
+            self.iface.messageBar().pushWarning(
+                "Test-Messung",
+                "Bitte zuerst einen Standpunkt setzen."
+            )
+            return
+        
+        dlg = TestMeasurementDialog(parent=self.iface.mainWindow())
+        if dlg.exec_() == QDialog.Accepted:
+            test_data = dlg.get_test_measurement()
+            self._perform_test_measurement(test_data)
+
+    def _perform_test_measurement(self, test_data: dict):
+        """Führt eine fiktive Test-Messung durch."""
+        try:
+            hz_gon = test_data['hz_gon']
+            za_gon = test_data['za_gon']
+            sd_m = test_data['sd_m']
+            point_id = test_data['point_id']
+            th = test_data['th']
+            
+            # Konvertiere gon zu Radiant
+            hz_rad = hz_gon * math.pi / 200.0
+            za_rad = za_gon * math.pi / 200.0
+            
+            # Berechne Punkt-Koordinaten aus Messwerten
+            # (Analog zu mesaure() Methode)
+            sp_x = self.sp["RECHTS"]
+            sp_y = self.sp["HOCH"]
+            sp_h = self.sp["H"]
+            sp_ih = self.sp["ih"]
+            
+            # Horizontale Distanz
+            hd = sd_m * math.sin(za_rad)
+            
+            # Berechnete Koordinaten
+            x = sp_x + hd * math.sin(hz_rad)
+            y = sp_y + hd * math.cos(hz_rad)
+            z = sp_h + sp_ih + sd_m * math.cos(za_rad) - th
+            
+            # Erstelle Punkt
+            point = QgsPointXY(x, y)
+            
+            # Ermittle Punkt-Typ basierend auf Präfix
+            matched_type = 'Messung'  # Default
+            matched_prefix = None
+            
+            try:
+                plugin_dir = os.path.dirname(__file__)
+                config_path = os.path.join(plugin_dir, 'pointTypes.json')
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                point_types = config.get('PointPrefixNumbers', {})
+                
+                for pt_label, pt_data in point_types.items():
+                    prefix = pt_data.get('prefix', '')
+                    if point_id.startswith(prefix.rstrip('.')):
+                        matched_prefix = prefix.rstrip('.')
+                        break
+            except:
+                pass
+            
+            # Speichere in Layer
+            self._add_feature_to_mlayer(point, {
+                'Punktnummer': point_id,
+                'Typ': 'Messung',
+                'Standpunkt': self.sp['ID'],
+                'Recordtime': QDateTime.currentDateTime(),
+                'ih': sp_ih,
+                'th': th,
+                'mess_sd': sd_m,
+                'mess_za': za_gon,
+                'mess_ha': hz_gon,
+                'calc_hd': hd,
+                'calc_x': x,
+                'calc_y': y,
+                'calc_z': z,
+            })
+            
+            # Regel für diesen Punkt-Typ registrieren (falls Messung mit Präfix)
+            if matched_prefix and matched_prefix in self._active_style_rules:
+                self._ensure_rule_for_point(point_id)
+            
+            # Protokoll-Eintrag
+            self._protokoll_add('MESSUNG', '')
+            self._protokoll[-1]['data'] = {
+                'standpunkt': self.sp['ID'],
+                'punktnummer': point_id,
+                'hz_gon': hz_gon,
+                'za_gon': za_gon,
+                'sd_m': sd_m,
+                'x': x,
+                'y': y,
+                'z': z,
+                'test': True,  # Markieren als Test-Messung
+            }
+            self._autosave_protokoll()
+            
+            # Status-Update
+            self.dockwidget.lbl_calc_x.setText(f'X: {x:.4f}')
+            self.dockwidget.lbl_calc_y.setText(f'Y: {y:.4f}')
+            self.dockwidget.lbl_calc_z.setText(f'Z: {z:.4f}')
+            
+            self.iface.messageBar().pushSuccess(
+                "Test-Messung",
+                f"Test-Messung '{point_id}' durchgeführt und gespeichert."
+            )
+            
+            self.mlayer.updateExtents()
+            self.mlayer.triggerRepaint()
+            
+        except Exception as e:
+            self.iface.messageBar().pushCritical(
+                "Test-Messung",
+                f"Fehler bei Test-Messung: {e}"
+            )
+            print(f"[Test-Messung] {e}")
         
     def setSp(self):
         try:
@@ -2178,15 +2338,7 @@ class QGISSokkia:
     def open_kanalmessstab_dialog(self):
         """Kanalmessstab-Dialog anzeigen (zwei Prismen am Stab → Zielpunkt
         in Verlängerung berechnen)."""
-        # Lazy create + Hilfsmesspunkte-Layer sicherstellen
-        if self.hmlayer is None:
-            self.addHmTempLayer(
-                f"HilfsMesspunkte-{datetime.now().strftime('%d%m%y-%H%M')}")
-            if self._layer_group_valid():
-                QgsProject.instance().addMapLayer(self.hmlayer, False)
-                self._layer_group.addLayer(self.hmlayer)
-            else:
-                QgsProject.instance().addMapLayer(self.hmlayer)
+        # Lazy create Linienlayer sicherstellen
         if self.kanal_line_layer is None:
             self.addKanalLineLayer(
                 f"KanalmessstabLinien-{datetime.now().strftime('%d%m%y-%H%M')}")
@@ -2320,23 +2472,29 @@ class QGISSokkia:
         return x, y, z
 
     def _kanal_save_helper(self, label, x, y, z, sd, za, ha):
-        """Speichert ein Prisma als Hilfsmesspunkt im hmlayer."""
-        if self.hmlayer is None:
+        """Speichert ein Prisma als Hilfsmesspunkt im einheitlichen Punktlayer."""
+        if self.mlayer is None:
             return
         try:
             typ = 'P1' if label.endswith('_P1') else (
                   'P2' if label.endswith('_P2') else 'PX')
             zugeh = label.rsplit('_', 1)[0] if '_' in label else ''
-            geom = QgsGeometry(QgsPoint(x, y, z))
-            feat = QgsFeature(self.hmlayer.fields())
-            feat.setGeometry(geom)
-            feat.setAttributes([
-                label, self.sp['ID'], QDateTime.currentDateTime(),
-                typ, zugeh, x, y, z, sd, za, ha,
-            ])
-            self.hmlayer.dataProvider().addFeature(feat)
-            self.hmlayer.updateExtents()
-            self.hmlayer.triggerRepaint()
+            point = QgsPointXY(x, y)
+            self._add_feature_to_mlayer(point, {
+                'Punktnummer': label,
+                'Typ': 'Hilfsmessung',
+                'Standpunkt': self.sp['ID'],
+                'Recordtime': QDateTime.currentDateTime(),
+                'mess_sd': sd,
+                'mess_za': za,
+                'mess_ha': ha,
+                'calc_x': x,
+                'calc_y': y,
+                'calc_z': z,
+                'Zielpunkt': zugeh,
+            })
+            self.mlayer.updateExtents()
+            self.mlayer.triggerRepaint()
             self._protokoll_add('KANALMESSSTAB-HILFSPUNKT', '')
             self._protokoll[-1]['data'] = {
                 'id': label, 'typ': typ, 'zielpunkt': zugeh,
@@ -2357,19 +2515,18 @@ class QGISSokkia:
                 "Mess-Layer nicht initialisiert – Zielpunkt nicht gespeichert.")
             return
         try:
-            # Zielpunkt im normalen Mess-Layer ablegen
+            # Zielpunkt im einheitlichen Punkt-Layer ablegen
             point = QgsPointXY(x, y)
-            feat = QgsFeature(self.mlayer.fields())
-            feat.setGeometry(QgsGeometry.fromPointXY(point))
-            # Felder analog addMPoint, jedoch ohne SD/HA/ZA-Originalwerte
-            feat.setAttributes([
-                targetid, self.sp['ID'], QDateTime.currentDateTime(),
-                self.sp['ih'], 0.0,
-                None, None, None,         # mess_sd, mess_za, mess_ha
-                None,                     # calc_hd
-                x, y, z, None,            # calc_x/y/z, prism_const
-            ])
-            self.mlayer.dataProvider().addFeature(feat)
+            self._add_feature_to_mlayer(point, {
+                'Punktnummer': targetid,
+                'Typ': 'Messung',
+                'Standpunkt': self.sp['ID'],
+                'Recordtime': QDateTime.currentDateTime(),
+                'ih': self.sp['ih'],
+                'calc_x': x,
+                'calc_y': y,
+                'calc_z': z,
+            })
             self.mlayer.updateExtents()
             self.mlayer.triggerRepaint()
             self._center_map(x, y)
@@ -2456,9 +2613,13 @@ class QGISSokkia:
             self.mlayer,
             parent=self.iface.mainWindow()
         )
-        # Instrumentenhöhe von der Standort-Dialog vorausfüllen
+        # Instrumentenhöhe und Standpunktnummer von der Standort-Dialog vorausfüllen
         ih_value = self._standort_dlg.input_ih.text()
         dlg.input_ih.setText(ih_value if ih_value else "0.0")
+        sp_id_value = self._standort_dlg.input_standpoint.text()
+        dlg.input_sp_id.setText(sp_id_value if sp_id_value else "SP")
+        # Referenz zum standort_dialog für später schließen speichern
+        dlg._standort_dlg = self._standort_dlg
         dlg.result_accepted.connect(self._apply_resection_result)
         dlg.exec_()
 
@@ -2476,12 +2637,165 @@ class QGISSokkia:
         """Aktiviert/deaktiviert den Transfermodus (pausiert readSerial)."""
         self._transfer_mode = active
 
+    def open_protokoll_viewer(self):
+        """Öffnet den Protokoll-Viewer-Dialog."""
+        if not self._protokoll:
+            self.iface.messageBar().pushWarning(
+                "Messprotokoll",
+                "Keine Protokolleinträge vorhanden."
+            )
+            return
+        
+        # Protokoll-Text formatieren
+        protokoll_text = self._format_protokoll_for_viewer()
+        
+        # Dialog mit Protokoll anzeigen
+        dlg = ProtokollViewerDialog(
+            protokoll_text,
+            protokoll_file=self._protokoll_tempfile,
+            parent=self.iface.mainWindow()
+        )
+        dlg.exec_()
+
+    def _format_protokoll_for_viewer(self) -> str:
+        """Formatiert das aktuelle Protokoll als Text für den Viewer."""
+        # Nutze die existierende Protokoll-Schreib-Funktion, um den Text zu generieren
+        from io import StringIO
+        
+        SEP  = '=' * 80
+        SEP2 = '-' * 80
+
+        def fmt(v, decimals=4):
+            try:
+                return f'{float(v):.{decimals}f}'
+            except (TypeError, ValueError):
+                return str(v) if v is not None else '—'
+
+        meta = self._protokoll_meta
+        lines = []
+        lines.append(SEP)
+        lines.append('  QGIS Sokkia Plugin  —  Messprotokoll')
+        lines.append(SEP)
+        lines.append(f"  Erstellt am  : {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
+        lines.append(f"  Sitzungsstart: {meta.get('start', datetime.now()).strftime('%d.%m.%Y %H:%M:%S')}")
+        lines.append(f"  Gerät        : {meta.get('device', '?')}")
+        lines.append(f"  Port / Baud  : {meta.get('port', '?')}  /  {meta.get('baudrate', '?')}")
+        lines.append(f"  Koordinaten  : {meta.get('crs', '?')}")
+        lines.append(SEP)
+        lines.append('')
+
+        n_station = sum(1 for e in self._protokoll if e['typ'] == 'STATIONIERUNG')
+        n_messung = sum(1 for e in self._protokoll if e['typ'] == 'MESSUNG')
+        lines.append(f'  Stationierungen: {n_station}    Messungen: {n_messung}')
+        lines.append('')
+
+        current_station = None
+        station_nr = 0
+        messung_nr = 0
+
+        for entry in self._protokoll:
+            t = entry['time'].strftime('%H:%M:%S.%f')[:-3]
+            typ = entry['typ']
+            if typ == 'VERBINDUNG':
+                lines.append(f'[{t}] VERBINDUNG')
+                lines.append(f"  {entry['text']}")
+                lines.append('')
+            elif typ == 'STATIONIERUNG':
+                station_nr += 1
+                d = entry.get('data', {})
+                lines.append(SEP2)
+                lines.append(f'[{t}] STATIONIERUNG #{station_nr}')
+                lines.append(f"  Standpunkt-Nr.    : {d.get('sp_id','?')}")
+                lines.append(f"  Rechts (X)        : {fmt(d.get('x'))} m")
+                lines.append(f"  Hoch   (Y)        : {fmt(d.get('y'))} m")
+                lines.append(f"  Höhe   (H)        : {fmt(d.get('h'))} m")
+                lines.append(f"  Instrumentenhöhe  : {fmt(d.get('ih'))} m")
+                lines.append(f"  Orientierung z0   : {fmt(d.get('orientation_gon'))} gon")
+                res = d.get('resection')
+                if res:
+                    pts = res.get('points', [])
+                    std = res.get('std_dev', [0, 0, 0])
+                    redundancy = res.get('redundancy', 0)
+                    z0_gon_res = res.get('z0_gon', 0)
+                    mode = res.get('mode', 'standard')
+                    mode_label = "Erweitert (konform)" if mode == "extended" else "Standard (klassisch)"
+                    lines.append(f"  [Freie Stationierung  —  {mode_label}  —  {len(pts)} Anschlusspunkte]")
+                    lines.append(f"  Orientierung z₀   : {z0_gon_res:.4f} gon")
+                    lines.append(f"  Genauigkeit:  σX: ±{fmt(std[0], 4)} m   σY: ±{fmt(std[1], 4)} m   σZ: ±{fmt(std[2], 4)} m")
+                    sigma0 = res.get('sigma0', 0)
+                    dof = res.get('dof', 0)
+                    lines.append(f"  σ₀ (Varianzfaktor): {fmt(sigma0, 4)}   Freiheitsgrade f: {dof}   Redundanz: {redundancy:.4f}")
+                    num_obs = res.get('num_obs', 0)
+                    num_unknowns = res.get('num_unknowns', 0)
+                    lines.append(f"  Beobachtungen     : {num_obs}   Unbekannte: {num_unknowns}")
+                    # RMS Residuen aus Per-Punkt-Daten berechnen
+                    _sd_res = [p['sd_res_mm'] for p in pts if 'sd_res_mm' in p]
+                    _hz_res = [p['hz_res_mgon'] for p in pts if 'hz_res_mgon' in p]
+                    _za_res = [p['za_res_mgon'] for p in pts if 'za_res_mgon' in p]
+                    rms_sd = math.sqrt(sum(v**2 for v in _sd_res) / max(len(_sd_res), 1)) if _sd_res else 0
+                    rms_hz = math.sqrt(sum(v**2 for v in _hz_res) / max(len(_hz_res), 1)) if _hz_res else 0
+                    rms_za = math.sqrt(sum(v**2 for v in _za_res) / max(len(_za_res), 1)) if _za_res else 0
+                    lines.append(f"  RMS Residuen      : SD={rms_sd:.2f} mm   Hz={rms_hz:.2f} mgon   ZA={rms_za:.2f} mgon")
+                    lines.append(f"  Instrumentenhöhe  : {fmt(res.get('ih'))} m")
+                    lines.append(f"  Refraktionskoeff. : {fmt(res.get('refraction_coefficient'), 4)}")
+                    lines.append(f"  Erdradius         : {res.get('earth_radius', 0)} m")
+                    lines.append(f"  A-priori σ        : SD={fmt(res.get('sigma_sd_mm', 0)/1000, 3)} m   Hz={fmt(res.get('sigma_hz_mgon'), 2)} mgon   ZA={fmt(res.get('sigma_za_mgon'), 2)} mgon")
+                    lines.append(f"  [Schwellwerte BW:  vHz ±20*/±50**,  vSD ±20*/±50** mm,  vZA ±20*/±50** mgon]")
+                    lines.append('')
+                    lines.append('  Punkt                 X-AP [m]        Y-AP [m]   Z-AP [m]    Hz [gon]     t [gon]  vHz [mgon]     SD [m]  SDber [m]  vSD [mm]    ZA [gon]  ZAber [gon]  vZA [mgon]')
+                    lines.append('  ' + '-' * 118)
+                    for pt in pts:
+                        ap_x = fmt(pt.get('ap_x'), 4)
+                        ap_y = fmt(pt.get('ap_y'), 4)
+                        ap_z = fmt(pt.get('ap_z'), 4)
+                        hz = fmt(pt.get('hz_gon'), 4)
+                        t = fmt(pt.get('t_gon'), 4)
+                        vhz = f"{pt.get('hz_res_mgon', 0):+.1f}"
+                        sd = fmt(pt.get('sd_m'), 4)
+                        sd_calc = fmt(pt.get('sd_calc'), 4)
+                        vsd = f"{pt.get('sd_res_mm', 0):+.1f}"
+                        za = fmt(pt.get('za_gon'), 4)
+                        za_calc = fmt(pt.get('za_calc'), 4)
+                        vza = f"{pt.get('za_res_mgon', 0):+.1f}"
+                        lines.append(f"  {pt.get('name', '?'):20} {ap_x:>14} {ap_y:>14} {ap_z:>9} {hz:>10} {t:>10} {vhz:>9} {sd:>9} {sd_calc:>9} {vsd:>8} {za:>10} {za_calc:>11} {vza:>10}")
+                lines.append('')
+            elif typ == 'MESSUNG':
+                messung_nr += 1
+                d = entry.get('data', {})
+                lines.append(f'[{t}] MESSUNG #{messung_nr}')
+                if d:
+                    lines.append(f"  Standpunkt: {d.get('standpunkt', '?')}  Punkt-Nr.: {d.get('punktnummer', '?')}")
+                    lines.append(f"  Messwerte: Hz={fmt(d.get('hz_gon'))} gon  ZA={fmt(d.get('za_gon'))} gon  SD={fmt(d.get('sd_m'))} m")
+                    lines.append(f"  Berechnete Koordinaten: X={fmt(d.get('x'))} m  Y={fmt(d.get('y'))} m  Z={fmt(d.get('z'))} m")
+                lines.append('')
+            elif typ == 'TRENNUNG':
+                lines.append(f'[{t}] TRENNUNG')
+                lines.append(f"  {entry['text']}")
+                lines.append('')
+            else:
+                # Andere Typen
+                if entry['text']:
+                    lines.append(f'[{t}] {typ}')
+                    lines.append(f"  {entry['text']}")
+                    lines.append('')
+
+        lines.append(SEP)
+        lines.append(f"  Ende des Protokolls  —  {n_station} Stationierung(en)  /  {n_messung} Messung(en)")
+        lines.append(SEP)
+        
+        return '\n'.join(lines)
+
     def _apply_resection_result(self, x: float, y: float, z: float, z0_rad: float, resection_details: dict = None):
         """
         Übernimmt das Ergebnis des Rückwärtsschnitts in den Standpunkt
         und die Orientierung des Plugins.
         """
-        sp_id = self._standort_dlg.input_standpoint.text() or "SP"
+        # Standpunktnummer aus resection_details (von resection_dialog) oder fallback auf standort_dialog
+        sp_id = resection_details.get('sp_id', '') if resection_details else ''
+        if not sp_id or sp_id.strip() == '':
+            sp_id = self._standort_dlg.input_standpoint.text() or "SP"
+        # SP-ID im standort_dialog aktualisieren (falls vom Resection-Dialog geändert)
+        self._standort_dlg.input_standpoint.setText(sp_id)
         # Instrumentenhöhe: aus Resection-Dialog wenn vorhanden, sonst von Standort-Dialog
         if resection_details and 'ih' in resection_details:
             ih = resection_details['ih']
@@ -2676,10 +2990,12 @@ class QGISSokkia:
             self.dockwidget.btn_measure.clicked.connect(self.mesaure)
             self.dockwidget.btn_measure_a.clicked.connect(self.mesaure_angle)
             self.dockwidget.btn_measure_stop.clicked.connect(self.mesaure_stop)
+            self.dockwidget.btn_test_measurement.clicked.connect(self.open_test_measurement_dialog)
 
             #Koordinaten-Transfer
             self.dockwidget.btn_transfer.clicked.connect(self.open_transfer_dialog)
             self.dockwidget.btn_export_protokoll.clicked.connect(self.export_protokoll)
+            self.dockwidget.btn_show_protokoll.clicked.connect(self.open_protokoll_viewer)
             self.dockwidget.btn_protokoll_from_layer.clicked.connect(self._open_protokoll_from_layer_dialog)
             # Linienabstand: nur Linienlayer anzeigen
             self.dockwidget.combo_line_layer.setFilters(QgsMapLayerProxyModel.LineLayer)

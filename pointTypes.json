@@ -3,62 +3,77 @@
         "Standpunkt": {
             "prefix": "SP.",
             "qml_file": "sp.qml",
-            "description": "Standort des Messinstruments"
+            "description": "Standort des Messinstruments",
+            "label_field": "Punktnummer",
+            "label_expression": "\"Punktnummer\" || '\\n' || round(\"known_z\", 2) || ' m'"
         },
         "Anschlusspunkt": {
             "prefix": "103.",
             "qml_file": "ap.qml",
-            "description": "Bekannter Anschlusspunkt für Orientierung"
+            "description": "Bekannter Anschlusspunkt für Orientierung",
+            "label_field": "Punktnummer",
+            "label_expression": "\"Punktnummer\" || '\\n' || round(\"known_z\", 2) || ' m'"
         },
         "Festpunkt-Höhe": {
             "prefix": "104.",
             "qml_file": "ap.qml",
-            "description": "Festpunkt - Höhenbestimmung"
+            "description": "Festpunkt - Höhenbestimmung",
+            "label_field": "\"Punktnummer\" || '\\n' || round(\"known_z\", 2) || ' m'"
         },
         "Festpunkt-3D": {
             "prefix": "101.",
             "qml_file": "ap.qml",
-            "description": "Festpunkt - 3D-Koordinaten"
+            "description": "Festpunkt - 3D-Koordinaten",
+            "label_field": "\"Punktnummer\" || '\\n' || round(\"known_z\", 2) || ' m'"
         },
         "Festpunkt-Lage": {
             "prefix": "102.",
             "qml_file": "ap.qml",
-            "description": "Festpunkt - Lagebestimmung"
+            "description": "Festpunkt - Lagebestimmung",
+            "label_field": "Punktnummer"
         },
         "Sonstiges": {
             "prefix": "199.",
             "qml_file": "messung.qml",
-            "description": "Sonstige Punkte"
+            "description": "Sonstige Punkte",
+            "label_field": "Punktnummer"
         },
         "Messung-Wandpunkt": {
             "prefix": "110.",
             "qml_file": "messung.qml",
-            "description": "Messung an Wandoberfläche"
+            "description": "Messung an Wandoberfläche",
+            "label_field": "Punktnummer"
         },
         "Messung-WandEcke": {
             "prefix": "111.",
             "qml_file": "messung.qml",
-            "description": "Messung an Wandecke"
+            "description": "Messung an Wandecke",
+            "label_field": "Punktnummer"
         },
         "Messung-Gebäudeecke": {
             "prefix": "112.",
             "qml_file": "messung.qml",
-            "description": "Messung an Gebäudeecke"
+            "description": "Messung an Gebäudeecke",
+            "label_field": "Punktnummer"
         },
         "Messung-Geländehöhe": {
             "prefix": "120.",
             "qml_file": "messung.qml",
-            "description": "Messung der Geländehöhe"
+            "description": "Messung der Geländehöhe",
+            "label_field": "\"Punktnummer\" || '\\n' || round(\"known_z\", 2) || ' m'"
         },
         "Messung-Fenster": {
             "prefix": "113.",
             "qml_file": "messung.qml",
-            "description": "Messung an Fensteröffnung"
+            "description": "Messung an Fensteröffnung",
+            "label_field": "Punktnummer"
         },
         "Grenzpunkt": {
             "prefix": "140.",
             "qml_file": "ap.qml",
-            "description": "Grenzpunkt der Liegenschaft"
+            "description": "Grenzpunkt der Liegenschaft",
+            "label_field": "Punktnummer",
+            "label_expression": "\"Punktnummer\" || '\\n' || round(\"known_x\", 2) || ' / ' || round(\"known_y\", 2) || '\\n' || round(\"known_z\", 2) || ' m'"
         }
     }
 }
