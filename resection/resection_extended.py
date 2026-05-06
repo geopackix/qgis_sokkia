@@ -210,8 +210,55 @@ def resection_extended(
             raise ValueError("initial_position muss 3 Elemente haben.")
     else:
         X = np.mean(P, axis=0)
-        # Kurze Vor-Iteration nur über Distanzen, falls vorhanden
-        if has_sd or has_hd:
+        # Robuste Initialisierung: bevorzugt Hz+SD/HD für Polaraufnahme
+        if has_hz and (has_sd or has_hd):
+            _dists_init = sd if has_sd else hd
+
+            # Iterative Bootstrap: o schätzen → Polar → o verfeinern → Polar → ...
+            for _bootstrap in range(10):
+                _o_estimates = []
+                for i in range(N):
+                    u = P[i, 0] - X[0]
+                    v = P[i, 1] - X[1]
+                    _o_estimates.append(hz[i] - np.arctan2(u, v))
+                _o_init = float(np.arctan2(
+                    np.mean(np.sin(_o_estimates)),
+                    np.mean(np.cos(_o_estimates))
+                ))
+
+                # Polaraufnahme: Standpunkt aus jedem Festpunkt rückrechnen
+                _positions = []
+                for i in range(N):
+                    bearing = hz[i] + _o_init
+                    d = _dists_init[i]
+                    _sx = P[i, 0] - d * np.sin(bearing)
+                    _sy = P[i, 1] - d * np.cos(bearing)
+                    _sz = P[i, 2]
+                    _positions.append([_sx, _sy, _sz])
+                X_new = np.mean(_positions, axis=0)
+
+                # Konvergenzcheck
+                if np.max(np.abs(X_new - X)) < tolerance:
+                    X = X_new
+                    break
+                X = X_new
+
+            # Z-Komponente aus ZA verfeinern
+            if has_za:
+                _z_ests = []
+                for i in range(N):
+                    u = P[i, 0] - X[0]
+                    v = P[i, 1] - X[1]
+                    s2D = max(np.sqrt(u * u + v * v), 1e-6)
+                    # za = atan2(s2D, w) => w = s2D / tan(za)
+                    if abs(za[i]) > 1e-6 and abs(za[i] - np.pi) > 1e-6:
+                        w_est = s2D / np.tan(za[i])
+                        # w = (P_z - X_z) + th - ih => X_z = P_z + th - ih - w
+                        _z_ests.append(P[i, 2] + th[i] - ih - w_est)
+                if _z_ests:
+                    X[2] = np.mean(_z_ests)
+        elif has_sd or has_hd:
+            # Nur Distanzen: Gedämpfte Vor-Iteration
             for _ in range(max_iterations):
                 rows_l: List[float] = []
                 rows_A: List[List[float]] = []
@@ -236,6 +283,11 @@ def resection_extended(
                     dX = np.linalg.lstsq(A0, l0, rcond=None)[0]
                 except np.linalg.LinAlgError:
                     break
+                # Schritt-Dämpfung
+                _max_step = np.max(np.abs(dX))
+                _mean_d = np.mean(sd) if has_sd else np.mean(hd)
+                if _max_step > _mean_d:
+                    dX = dX * (_mean_d / _max_step)
                 X = X + dX
                 if np.max(np.abs(dX)) < tolerance:
                     break

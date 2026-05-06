@@ -33,10 +33,9 @@ from qgis.core import (
     QgsMapLayerProxyModel, QgsProject, QgsWkbTypes,
 )
 
-# Sicherstellen, dass das resection-Modul importierbar ist
-sys.path.insert(0, os.path.dirname(__file__))
-from resection import resection  # noqa: E402
-from resection_extended import resection_extended  # noqa: E402
+# Relative Importe des resection-Moduls
+from .resection import resection  # noqa: E402
+from .resection_extended import resection_extended  # noqa: E402
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -845,8 +844,7 @@ class ResectionDialog(QDialog):
     def _on_mode_changed(self, _idx):
         is_extended = self.mode_combo.currentData() == "extended"
         self.grp_extended.setVisible(is_extended)
-        # Spalte 'th [m]' nur im erweiterten Modus zeigen
-        self.table.setColumnHidden(6, not is_extended)
+        # Spalte 'th [m]' in beiden Modi sichtbar (ih/th wird jetzt auch im Standard-Modus verwendet)
 
     # ── Berechnung ────────────────────────────────────────────────────────────
 
@@ -937,11 +935,20 @@ class ResectionDialog(QDialog):
                     obs_labels=[o["name"] for o in obs],
                 )
             else:
+                # Standard-Methode: mit ih/th für korrekte Z-Bestimmung
+                target_heights_std = np.array([o["th_m"] for o in obs])
+                try:
+                    ih_val_std = _parse_float(self.input_ih.text())
+                except ValueError:
+                    ih_val_std = 0.0
+
                 result = resection(
                     observed_points,
                     measured_slant_distances=slant_distances,
                     measured_v_angles=v_angles,
                     measured_hz_angles=hz_angles,
+                    instrument_height=ih_val_std,
+                    target_heights=target_heights_std,
                 )
         except Exception as e:
             QMessageBox.critical(

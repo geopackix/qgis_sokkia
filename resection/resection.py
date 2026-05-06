@@ -95,6 +95,8 @@ def resection(
     measured_directions: Optional[np.ndarray] = None,
     measured_hz_angles: Optional[np.ndarray] = None,
     measured_v_angles: Optional[np.ndarray] = None,
+    instrument_height: float = 0.0,
+    target_heights: Optional[np.ndarray] = None,
     max_iterations: int = 20,
     tolerance: float = 1e-8,
     weights_vectors: Optional[np.ndarray] = None,
@@ -269,13 +271,66 @@ def resection(
     if n_meas < 3:
         raise ValueError(f"Zu wenige Messungen an Standpunkt({n_meas}), mindestens 3 erforderlich.")
 
+    # Instrumenten- und Reflektorhöhen
+    ih = float(instrument_height)
+    if target_heights is not None:
+        th = np.asarray(target_heights, dtype=float).flatten()
+    else:
+        th = np.zeros(n_total)
+
     # Initialisierung: Näherungskoordinaten bestimmen
     if has_vectors:
         # Mit Vektoren kann linear initialisiert werden
         X0 = np.mean(P[:n_v] - V_vec, axis=0)
+    elif has_hz_angles and (has_slant_distances or has_distances):
+        # Hz-Winkel + Distanzen: Iterative Polaraufnahme für robuste Initialisierung
+        _dists = S_meas if has_slant_distances else D_meas
+        _n_init = min(n_hz, len(_dists))
+        X0 = np.mean(P[:_n_init], axis=0)
+
+        # Iterative Bootstrap: o schätzen → Polar → o verfeinern → Polar → ...
+        for _bootstrap in range(10):
+            # Orientierung aus aktueller Position schätzen
+            _o_estimates = []
+            for i in range(_n_init):
+                diff_i = P[i] - X0
+                _o_est = HZ_meas[i] - np.arctan2(diff_i[0], diff_i[1])
+                _o_estimates.append(_o_est)
+            _o_init = np.arctan2(
+                np.mean(np.sin(_o_estimates)),
+                np.mean(np.cos(_o_estimates))
+            )
+
+            # Polaraufnahme: Standpunkt aus jedem Festpunkt rückrechnen
+            _positions = []
+            for i in range(_n_init):
+                bearing = HZ_meas[i] + _o_init
+                d = _dists[i]
+                _sx = P[i, 0] - d * np.sin(bearing)
+                _sy = P[i, 1] - d * np.cos(bearing)
+                _sz = P[i, 2]
+                _positions.append([_sx, _sy, _sz])
+            X0_new = np.mean(_positions, axis=0)
+
+            # Konvergenzcheck
+            if np.max(np.abs(X0_new - X0)) < tolerance:
+                X0 = X0_new
+                break
+            X0 = X0_new
+
+        # Z-Komponente aus Höhenwinkeln verfeinern
+        if has_v_angles:
+            _z_estimates = []
+            for i in range(min(n_v_angles, _n_init)):
+                diff_xy = P[i, :2] - X0[:2]
+                dh = np.linalg.norm(diff_xy)
+                if dh > 1e-6:
+                    _z_est = P[i, 2] + th[i] - dh * np.tan(V_meas[i]) - ih
+                    _z_estimates.append(_z_est)
+            if _z_estimates:
+                X0[2] = np.mean(_z_estimates)
     elif has_slant_distances or has_distances:
-        # Bessere Initialisierung bei vorhandenen Distanzen:
-        # Schnelle Vor-Iteration (nur Distanzen, 3 Unknowns) für stabiles X0
+        # Nur Distanzen: Gedämpfte Vor-Iteration
         X0 = np.mean(P, axis=0)
         _S = S_meas if has_slant_distances else None
         _D = D_meas if has_distances else None
@@ -305,6 +360,11 @@ def resection(
                 _dX = np.linalg.lstsq(_A_mat, _l_vec, rcond=None)[0]
             except np.linalg.LinAlgError:
                 break
+            # Schritt-Dämpfung: Begrenze maximale Schrittweite
+            _max_step = np.max(np.abs(_dX))
+            _mean_dist = np.mean(_S) if _S is not None else np.mean(_D)
+            if _max_step > _mean_dist:
+                _dX = _dX * (_mean_dist / _max_step)
             X0 = X0 + _dX
             if np.max(np.abs(_dX)) < tolerance:
                 break
@@ -379,22 +439,24 @@ def resection(
                 A.append(A_row)
                 P_weights.append(np.array([W_dist[i]]))
 
-        # Schrägstrecken-Beobachtungen
+        # Schrägstrecken-Beobachtungen (mit ih/th)
         if has_slant_distances:
             for i in range(n_s):
                 diff = P[i] - X
-                dist = np.linalg.norm(diff)
+                # Berücksichtige ih und th: effektiver Höhenunterschied
+                diff_eff = diff.copy()
+                diff_eff[2] = diff[2] + th[i] - ih
+                dist = np.linalg.norm(diff_eff)
                 if dist < 1e-10:
                     dist = 1e-10
                 
-                # Beobachtungsgleichung: ||P_i - X|| = s_i (3D-Distanz)
-                # Residuum: l_i = s_i^gemessen - ||P_i - X||
+                # Beobachtungsgleichung: ||P_i + [0,0,th] - X - [0,0,ih]|| = s_i
+                # Residuum: l_i = s_i^gemessen - dist_eff
                 l_i = np.array([S_meas[i] - dist])
                 l.append(l_i)
 
-                # Jacobi: d(||P_i - X||)/dX = -(P_i - X)^T / ||P_i - X||
-                # Shape: (1, 3)
-                grad_dist = -diff / dist
+                # Jacobi: ∂dist/∂X = -diff_eff / dist
+                grad_dist = -diff_eff / dist
                 A_row = grad_dist.reshape(1, 3)
                 if n_unknowns > 3:
                     A_row = np.hstack([A_row, [[0.0]]])
@@ -450,20 +512,21 @@ def resection(
                 A.append(A_i)
                 P_weights.append(np.array([W_hz[i]]))
 
-        # Vertikalwinkel-Beobachtungen (Höhenwinkel)
+        # Vertikalwinkel-Beobachtungen (Höhenwinkel, mit ih/th)
         if has_v_angles:
             for i in range(n_v_angles):
                 diff = P[i] - X
                 dx = diff[0]
                 dy = diff[1]
-                dz = diff[2]
+                # Berücksichtige ih und th
+                dz = diff[2] + th[i] - ih
                 
                 # Horizontale Distanz
                 dh = np.sqrt(dx*dx + dy*dy)
                 if dh < 1e-10:
                     dh = 1e-10
                 
-                # Beobachtungsgleichung: v = atan(dz / dh)
+                # Beobachtungsgleichung: v = atan2(dz_eff, dh)
                 v_calc = np.arctan2(dz, dh)
                 # Residuum
                 v_res = V_meas[i] - v_calc
@@ -471,14 +534,13 @@ def resection(
                 l.append(l_i)
                 
                 # Jacobi: d(atan2(dz, dh))/dX
-                # dh/dX = [dx/dh, dy/dh, 0]
-                # v = atan(dz/dh) => dv/dX = [-dz*dh/(dh² + dz²) * d(dh)/dX + 1/(dh² + dz²) * [0, 0, dh]]
+                # dz = P_z + th - X_z - ih → ∂dz/∂X_z = -1
                 dist_sq = dh*dh + dz*dz
                 if dist_sq < 1e-10:
                     dist_sq = 1e-10
                 
                 # dv/d(dh) = -dz / dist_sq, dv/d(dz) = dh / dist_sq
-                # Kettenregel mit d(diff)/dX = -I:
+                # Kettenregel mit d(diff_xy)/dX = -I, d(dz)/dXz = -1:
                 A_row = np.array([
                     [dz*dx / (dh * dist_sq), dz*dy / (dh * dist_sq), -dh / dist_sq]
                 ])
@@ -528,7 +590,9 @@ def resection(
     if has_slant_distances:
         for i in range(n_s):
             diff = P[i] - X
-            dist = np.linalg.norm(diff)
+            diff_eff = diff.copy()
+            diff_eff[2] = diff[2] + th[i] - ih
+            dist = np.linalg.norm(diff_eff)
             res_i = S_meas[i] - dist
             residuals_list.append(np.array([res_i, 0, 0]))  # Für Kompatibilität als 3D-Vektor
 
@@ -555,7 +619,7 @@ def resection(
     if has_v_angles:
         for i in range(n_v_angles):
             diff = P[i] - X
-            dz = diff[2]
+            dz = diff[2] + th[i] - ih
             dh = np.sqrt(diff[0]**2 + diff[1]**2)
             if dh < 1e-10:
                 dh = 1e-10
@@ -585,7 +649,9 @@ def resection(
     if has_slant_distances:
         for i in range(n_s):
             diff = P[i] - X
-            dist = np.linalg.norm(diff)
+            diff_eff = diff.copy()
+            diff_eff[2] = diff[2] + th[i] - ih
+            dist = np.linalg.norm(diff_eff)
             l_final.append([S_meas[i] - dist])
     if has_directions:
         for i in range(n_r):
@@ -609,7 +675,7 @@ def resection(
     if has_v_angles:
         for i in range(n_v_angles):
             diff = P[i] - X
-            dz = diff[2]
+            dz = diff[2] + th[i] - ih
             dh = np.sqrt(diff[0]**2 + diff[1]**2)
             if dh < 1e-10:
                 dh = 1e-10
