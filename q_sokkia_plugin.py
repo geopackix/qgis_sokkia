@@ -1062,12 +1062,22 @@ class QGISSokkia:
         def _fmt_row(nr, t_str, pid, is_winkel, hz, za, sd, x, y, z, comment=''):
             flag = ' [W]' if is_winkel else '    '
             pid_str = f'{(pid + flag):<18}'
-            hz_str = f'{hz:>12.4f}' if hz is not None else f'{"—":>12}'
-            za_str = f'{za:>11.4f}' if za is not None else f'{"—":>11}'
-            sd_str = f'{sd:>10.4f}' if sd is not None else f'{"—":>10}'
-            x_str  = f'{x:>12.4f}'  if x  is not None else f'{"—":>12}'
-            y_str  = f'{y:>12.4f}'  if y  is not None else f'{"—":>12}'
-            z_str  = f'{z:>10.4f}'  if z  is not None else f'{"—":>10}'
+            
+            # Robuste Konvertierung und Formatierung
+            def _fmt_col(val, width, decimals=4):
+                if val is None:
+                    return f'{"—":>{width}}'
+                try:
+                    return f'{float(val):>{width}.{decimals}f}'
+                except (TypeError, ValueError):
+                    return f'{"—":>{width}}'
+            
+            hz_str = _fmt_col(hz, 12, 4)
+            za_str = _fmt_col(za, 11, 4)
+            sd_str = _fmt_col(sd, 10, 4)
+            x_str  = _fmt_col(x, 12, 4)
+            y_str  = _fmt_col(y, 12, 4)
+            z_str  = _fmt_col(z, 10, 4)
             cmt_str = f'  {comment}' if comment else ''
             return f'  {nr:>4}  {t_str}  {pid_str}  {hz_str}  {za_str}  {sd_str}  {x_str}  {y_str}  {z_str}{cmt_str}'
 
@@ -1408,6 +1418,25 @@ class QGISSokkia:
                     break
         return mapping
 
+    def _layer_feat_typ(self, feat, field_map):
+        """Ermittelt den Typ eines Features aus dem Layer (Messung/Winkelmessung/etc.)."""
+        # Versuche 'Typ'-Feld direkt
+        field_names = [f.name() for f in feat.fields()] if hasattr(feat, 'fields') else []
+        for fname in field_names:
+            if fname[:3] == 'Typ':
+                val = feat[fname]
+                if val:
+                    return str(val)
+        # Fallback: wenn kein SD vorhanden -> Winkelmessung
+        sd_field = field_map.get('mess_sd', 'mess_sd')
+        try:
+            sd_val = feat[sd_field]
+            if sd_val is None or sd_val == 0:
+                return 'Winkelmessung'
+        except Exception:
+            pass
+        return 'Messung'
+
     def _parse_datetime(self, value):
         """Konvertiert einen Datumswert zu datetime, egal welcher Typ er ist."""
         if value is None:
@@ -1455,9 +1484,10 @@ class QGISSokkia:
         return None
 
     def _write_protokoll_from_layer(self, layer, filepath: str):
-        """Erstellt ein Messprotokoll aus einem vorhandenen Messlayer."""
-        SEP  = '=' * 80
-        SEP2 = '-' * 80
+        """Erstellt ein Messprotokoll aus einem vorhandenen Messlayer.
+        Verwendet dasselbe Tabellenformat wie _write_protokoll_to_file."""
+        SEP  = '=' * 110
+        SEP2 = '-' * 110
 
         # Feldnamen-Mapping erstellen
         field_map = self._get_field_mapping(layer)
@@ -1466,7 +1496,35 @@ class QGISSokkia:
             try:
                 return f'{float(v):.{decimals}f}'
             except (TypeError, ValueError):
-                return str(v) if v is not None else '—'
+                return str(v) if v is not None else '\u2014'
+
+        def _fmt_col(val, width, decimals=4):
+            if val is None:
+                return f'{"\u2014":>{width}}'
+            try:
+                return f'{float(val):>{width}.{decimals}f}'
+            except (TypeError, ValueError):
+                return f'{"\u2014":>{width}}'
+
+        def _fmt_row(nr, t_str, pid, is_winkel, hz, za, sd, x, y, z, comment=''):
+            flag = ' [W]' if is_winkel else '    '
+            pid_str = f'{(pid + flag):<18}'
+            hz_str = _fmt_col(hz, 12, 4)
+            za_str = _fmt_col(za, 11, 4)
+            sd_str = _fmt_col(sd, 10, 4)
+            x_str  = _fmt_col(x, 12, 4)
+            y_str  = _fmt_col(y, 12, 4)
+            z_str  = _fmt_col(z, 10, 4)
+            cmt_str = f'  {comment}' if comment else ''
+            return f'  {nr:>4}  {t_str}  {pid_str}  {hz_str}  {za_str}  {sd_str}  {x_str}  {y_str}  {z_str}{cmt_str}'
+
+        TBL_HDR = ('   Nr.  Zeit      Pkt-Nr.               '
+                   '  Hz(or.) [gon]  ZA [gon]   '
+                   '  SD [m]       X [m]        Y [m]      Z [m]'
+                   '  Kommentar')
+        TBL_SEP = ('  ' + '-'*4 + '  ' + '-'*8 + '  ' + '-'*18 + '  '
+                   + '-'*12 + '  ' + '-'*11 + '  ' + '-'*10 + '  '
+                   + '-'*12 + '  ' + '-'*12 + '  ' + '-'*10)
 
         # Features sortiert nach Recordtime lesen
         rt_field = field_map.get('Recordtime', 'Recordtime')
@@ -1508,7 +1566,8 @@ class QGISSokkia:
             stations.append((current_sp, current_group))
 
         n_station = len(stations)
-        n_messung = len(features)
+        n_messung = sum(1 for f in features if self._layer_feat_typ(f, field_map) != 'Winkelmessung')
+        n_winkel = sum(1 for f in features if self._layer_feat_typ(f, field_map) == 'Winkelmessung')
 
         # Feldnamen-Shortcuts
         pkt_field = field_map.get('Punktnummer', 'Punktnummer')
@@ -1517,16 +1576,21 @@ class QGISSokkia:
         sd_field = field_map.get('mess_sd', 'mess_sd')
         za_field = field_map.get('mess_za', 'mess_za')
         ha_field = field_map.get('mess_ha', 'mess_ha')
-        hd_field = field_map.get('calc_hd', 'calc_hd')
         x_field = field_map.get('calc_x', 'calc_x')
         y_field = field_map.get('calc_y', 'calc_y')
         z_field = field_map.get('calc_z', 'calc_z')
-        pc_field = field_map.get('prism_const', 'prism_const')
+
+        # Kommentar-Feld (optional, nicht in _REQUIRED_FIELDS)
+        kommentar_field = None
+        for fname in [f.name() for f in layer.fields()]:
+            if fname[:10] == 'Kommentar'[:10]:
+                kommentar_field = fname
+                break
 
         # Protokoll schreiben
         lines = []
         lines.append(SEP)
-        lines.append('  QGIS Sokkia Plugin  —  Messprotokoll (aus Layer)')
+        lines.append('  QGIS Sokkia Plugin  \u2014  Messprotokoll (aus Layer)')
         lines.append(SEP)
         lines.append(f"  Erstellt am      : {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
         lines.append(f"  Quell-Layer      : {layer.name()}")
@@ -1534,50 +1598,70 @@ class QGISSokkia:
         if time_min and time_max:
             lines.append(f"  Messdatum        : {time_min.strftime('%d.%m.%Y')}"
                          + (f" bis {time_max.strftime('%d.%m.%Y')}" if time_min.date() != time_max.date() else ''))
-            lines.append(f"  Messzeitraum     : {time_min.strftime('%H:%M:%S')} — {time_max.strftime('%H:%M:%S')}")
+            lines.append(f"  Messzeitraum     : {time_min.strftime('%H:%M:%S')} \u2014 {time_max.strftime('%H:%M:%S')}")
         lines.append(SEP)
         lines.append('')
-        lines.append(f'  Stationierungen: {n_station}    Messungen: {n_messung}')
+        lines.append(f'  Stationierungen: {n_station}    Messungen: {n_messung}    Winkelmessungen: {n_winkel}')
         lines.append('')
 
         messung_nr = 0
+        in_table = False
+
+        def _open_table():
+            nonlocal in_table
+            lines.append('')
+            lines.append(TBL_HDR)
+            lines.append(TBL_SEP)
+            in_table = True
+
+        def _close_table():
+            nonlocal in_table
+            if in_table:
+                lines.append(TBL_SEP)
+                lines.append('')
+                in_table = False
+
         for station_idx, (sp_name, sp_features) in enumerate(stations, start=1):
+            _close_table()
             first = sp_features[0]
             ih = first[ih_field]
-            lines.append(SEP2)
-            lines.append(f'STATIONIERUNG #{station_idx}')
-            lines.append(f"  Standpunkt-Nr.    : {sp_name}")
-            lines.append(f"  Instrumentenhöhe  : {fmt(ih)} m")
-            # Zeitstempel der Station (erster Messpunkt)
             rt = self._parse_datetime(first[rt_field])
-            if rt:
-                lines.append(f"  Erster Messpunkt  : {rt.strftime('%d.%m.%Y %H:%M:%S')}")
+            t_str = rt.strftime('%H:%M:%S') if rt else '??:??:??'
+
+            lines.append(SEP2)
+            lines.append(f'[{t_str}] STATIONIERUNG #{station_idx}  \u2014  Standpunkt: {sp_name}')
+            lines.append(f"  ih: {fmt(ih)} m")
             lines.append('')
 
+            messung_nr = 0
             for feat in sp_features:
+                typ = self._layer_feat_typ(feat, field_map)
+                # Nur Messungen/Winkelmessungen in Tabelle aufnehmen
+                if typ not in ('Messung', 'Winkelmessung'):
+                    continue
+                if not in_table:
+                    _open_table()
                 messung_nr += 1
                 dt = self._parse_datetime(feat[rt_field])
-                if not dt:
-                    # Debug-Info: was ist im Feld?
-                    val = feat.get(rt_field) if hasattr(feat, 'get') else feat[rt_field]
-                    print(f"[Protokoll] Messung #{messung_nr}: rt_field='{rt_field}', value='{val}', type={type(val)}")
-                t_str = dt.strftime('%H:%M:%S') if dt else '??:??:??'
+                t_m = dt.strftime('%H:%M:%S') if dt else '??:??:??'
                 pkt_id = feat[pkt_field] or '?'
-                lines.append(f"[{t_str}] Messung #{messung_nr}  —  Pkt: {pkt_id}")
-                lines.append(f"  Standpunkt        : {sp_name}")
-                lines.append(f"  Hz (orientiert)   : {fmt(feat[ha_field])} gon")
-                lines.append(f"  ZA (Zenitwinkel)  : {fmt(feat[za_field])} gon")
-                lines.append(f"  SD (Schrägdistanz): {fmt(feat[sd_field])} m")
-                lines.append(f"  HD (Horizontaldist): {fmt(feat[hd_field])} m")
-                lines.append(f"  Zielh. (th)       : {fmt(feat[th_field])} m")
-                lines.append(f"  Prismenkonstante  : {fmt(feat[pc_field], 1)} mm")
-                lines.append(f"  Ber. X (Rechts)   : {fmt(feat[x_field])} m")
-                lines.append(f"  Ber. Y (Hoch)     : {fmt(feat[y_field])} m")
-                lines.append(f"  Ber. Z (Höhe)     : {fmt(feat[z_field])} m")
-                lines.append('')
+                is_winkel = (typ == 'Winkelmessung')
+                hz = feat[ha_field]
+                za = feat[za_field]
+                sd = feat[sd_field] if not is_winkel else None
+                x  = feat[x_field]  if not is_winkel else None
+                y  = feat[y_field]  if not is_winkel else None
+                z  = feat[z_field]  if not is_winkel else None
+                comment = ''
+                if kommentar_field:
+                    comment = feat[kommentar_field] or ''
+                lines.append(_fmt_row(messung_nr, t_m, str(pkt_id), is_winkel,
+                                      hz, za, sd, x, y, z, comment))
 
+        _close_table()
         lines.append(SEP)
-        lines.append(f'  Ende des Protokolls  —  {n_station} Stationierung(en)  /  {n_messung} Messung(en)')
+        lines.append(f'  Ende des Protokolls  \u2014  {n_station} Stationierung(en)  /  '
+                     f'{n_messung} Messung(en)  /  {n_winkel} Winkelmessung(en)')
         lines.append(SEP)
 
         with open(filepath, 'w', encoding='utf-8') as f:
