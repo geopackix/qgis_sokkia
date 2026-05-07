@@ -809,7 +809,7 @@ class QGISSokkia:
         new_rule.setLabel(matched_label)
         new_rule.setFilterExpression(filter_expr)
         # Vor die ELSE-Regel einfügen
-        root_rule.insertChild(root_rule.childCount() - 1, new_rule)
+        root_rule.insertChild(len(root_rule.children()) - 1, new_rule)
         self._active_style_rules.add(matched_prefix)
         self.mlayer.triggerRepaint()
 
