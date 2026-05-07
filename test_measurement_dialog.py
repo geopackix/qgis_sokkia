@@ -5,7 +5,7 @@ Dialog für fiktive Test-Messungen zur Entwicklung und zum Testen.
 
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QPushButton,
-    QLabel, QLineEdit, QSpinBox, QDoubleSpinBox, QMessageBox, QGroupBox, QComboBox
+    QLabel, QLineEdit, QSpinBox, QDoubleSpinBox, QMessageBox, QGroupBox, QComboBox, QCheckBox
 )
 from qgis.PyQt.QtCore import Qt
 import math
@@ -86,12 +86,22 @@ class TestMeasurementDialog(QDialog):
 
         layout.addWidget(grp_meas)
 
+        # Modus-Checkbox
+        self.cb_angle_only = QCheckBox("Nur Richtungsmessung (ohne Koordinatenberechnung)")
+        self.cb_angle_only.setToolTip(
+            "Wenn aktiv: nur Hz und ZA werden gemessen, keine Strecke und keine Koordinaten.\n"
+            "Beim Speichern erscheint der Winkelmessungs-Dialog."
+        )
+        self.cb_angle_only.toggled.connect(self._on_angle_only_toggled)
+        layout.addWidget(self.cb_angle_only)
+
         # Punkt-Information
         grp_point = QGroupBox("Punkt-Information")
         grid2 = QGridLayout(grp_point)
 
         # Punkttyp-Auswahl
-        grid2.addWidget(QLabel("Punkt-Typ:"), 0, 0)
+        self._lbl_point_type = QLabel("Punkt-Typ:")
+        grid2.addWidget(self._lbl_point_type, 0, 0)
         self.combo_point_type = QComboBox()
         self._populate_point_type_combo()
         grid2.addWidget(self.combo_point_type, 0, 1)
@@ -104,7 +114,8 @@ class TestMeasurementDialog(QDialog):
         grid2.addWidget(self.input_point_id, 1, 1)
 
         # Reflektorhöhe th
-        grid2.addWidget(QLabel("Reflektorhöhe th [m]:"), 2, 0)
+        self._lbl_th = QLabel("Reflektorh\xf6he th [m]:")
+        grid2.addWidget(self._lbl_th, 2, 0)
         self.input_th = QDoubleSpinBox()
         self.input_th.setRange(0.0, 5.0)
         self.input_th.setValue(0.0)
@@ -167,6 +178,13 @@ class TestMeasurementDialog(QDialog):
         # Verbinde Signal NACH dem Erstellen aller Widgets
         self.combo_point_type.currentIndexChanged.connect(self._on_point_type_changed)
 
+    def _on_angle_only_toggled(self, checked: bool):
+        """Blendet die SD-Eingabe und Punkttyp-Auswahl bei Nur-Richtungsmessung aus."""
+        self._lbl_point_type.setVisible(not checked)
+        self.combo_point_type.setVisible(not checked)
+        self._lbl_th.setVisible(not checked)
+        self.input_th.setVisible(not checked)
+
     def _populate_point_type_combo(self):
         """Befüllt die ComboBox mit Punkttypen aus pointTypes.json."""
         self.combo_point_type.clear()
@@ -219,28 +237,32 @@ class TestMeasurementDialog(QDialog):
         self.input_point_id.setText(self.combo_point_type.currentData() + "003")
 
     def _random_measurements(self):
-        """Generiert zufällige realistische Messwerte."""
-        # Zufällige Messwerte im realistischen Bereich
+        """Generiert zuf\xe4llige realistische Messwerte im Nahbereich (max. 10 m)."""
         hz = random.uniform(0.0, 400.0)
-        za = random.uniform(70.0, 130.0)
-        sd = random.uniform(5.0, 500.0)
-        
+        za = random.uniform(85.0, 115.0)
+        sd = random.uniform(1.0, 10.0)
+
         self.input_hz.setValue(hz)
         self.input_za.setValue(za)
         self.input_sd.setValue(sd)
-        
-        # Zufällige Punkt-Nummer mit Präfix
-        prefix = self.combo_point_type.currentData()
+
+        # Zuf\xe4llige Punkt-Nummer mit Pr\xe4fix
+        prefix = self.combo_point_type.currentData() or 'TEST.'
         random_suffix = str(random.randint(1, 999)).zfill(3)
         self.input_point_id.setText(prefix + random_suffix)
 
+    def is_angle_only(self) -> bool:
+        """Gibt True zur\xfcck wenn 'Nur Richtungsmessung' aktiv ist."""
+        return self.cb_angle_only.isChecked()
+
     def get_test_measurement(self):
-        """Gibt die Test-Messwerte als Dictionary zurück."""
+        """Gibt die Test-Messwerte als Dictionary zur\xfcck."""
         return {
             'hz_gon': self.input_hz.value(),
             'za_gon': self.input_za.value(),
             'sd_m': self.input_sd.value(),
             'point_id': self.input_point_id.text() or "TEST.001",
             'th': self.input_th.value(),
+            'angle_only': self.cb_angle_only.isChecked(),
         }
 

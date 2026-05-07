@@ -146,6 +146,10 @@ class SavePointDialog(QDialog):
         form.addRow("Y (Hoch):", self._lbl_y)
         form.addRow("Z (H\xf6he):", self._lbl_z)
 
+        self._input_comment = QLineEdit()
+        self._input_comment.setPlaceholderText("Optionaler Kommentar ...")
+        form.addRow("Kommentar:", self._input_comment)
+
         layout.addLayout(form)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Discard)
@@ -164,8 +168,47 @@ class SavePointDialog(QDialog):
             pass
 
     def get_values(self):
-        """Gibt (point_id, th) zurück."""
-        return self._input_id.text(), float(self._input_th.text())
+        """Gibt (point_id, th, comment) zurück."""
+        return self._input_id.text(), float(self._input_th.text()), self._input_comment.text().strip()
+
+
+class SaveAngleMeasurementDialog(QDialog):
+    """Dialog vor dem Speichern einer Winkelmessung: Punktnummer editierbar, Hz/ZA sichtbar."""
+
+    def __init__(self, point_id, ha_oriented, za, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Winkelmessung speichern")
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self._input_id = QLineEdit(str(point_id))
+        form.addRow("Punktnummer:", self._input_id)
+
+        lbl_hz = QLabel(f"{ha_oriented:.4f} gon")
+        lbl_hz.setStyleSheet("font-weight:bold;")
+        form.addRow("Hz (orientiert):", lbl_hz)
+
+        lbl_za = QLabel(f"{za:.4f} gon")
+        lbl_za.setStyleSheet("font-weight:bold;")
+        form.addRow("ZA (Zenitwinkel):", lbl_za)
+
+        self._input_comment = QLineEdit()
+        self._input_comment.setPlaceholderText("Optionaler Kommentar ...")
+        form.addRow("Kommentar:", self._input_comment)
+
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Discard)
+        buttons.accepted.connect(self.accept)
+        discard_btn = buttons.button(QDialogButtonBox.Discard)
+        discard_btn.setText("Verwerfen")
+        discard_btn.clicked.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def get_values(self):
+        """Gibt (point_id, comment) zurück."""
+        return self._input_id.text(), self._input_comment.text().strip()
 
 
 class QGISSokkia:
@@ -237,6 +280,7 @@ class QGISSokkia:
         self.orientationArrow = OrientationArrow(self.crsName)
         self._layer_group = None  # aktuelle Layer-Gruppe im Layerbaum
         self._direction_rubber_band = None  # Live-Richtungslinie auf der Karte
+        self._capture_next_angle = False  # Flag: nächste Winkelmessung als Messung speichern
         
         
         #remove_all_rubber_bands(self.canvas)
@@ -831,12 +875,13 @@ class QGISSokkia:
         
         fields = [
             QgsField('Punktnummer', QVariant.String),
-            QgsField('Typ', QVariant.String),           # Messung / Stationierung / Anschlusspunkt / Hilfsmessung
+            QgsField('Typ', QVariant.String),           # Messung / Stationierung / Anschlusspunkt / Hilfsmessung / Winkelmessung
             QgsField('Standpunkt', QVariant.String),
             QgsField('Recordtime', QVariant.DateTime),
             QgsField('ih', QVariant.Double),
             QgsField('orientation', QVariant.Double),   # z₀ in gon (für Stationierung)
             QgsField('th', QVariant.Double),
+            QgsField('Kommentar', QVariant.String),
             # Rohe Messungen
             QgsField('mess_sd', QVariant.Double),
             QgsField('mess_za', QVariant.Double),
@@ -1005,23 +1050,43 @@ class QGISSokkia:
 
     def _write_protokoll_to_file(self, filepath: str):
         """Schreibt das Protokoll in die angegebene Datei (intern genutzt)."""
-        SEP  = '=' * 80
-        SEP2 = '-' * 80
+        SEP  = '=' * 110
+        SEP2 = '-' * 110
 
         def fmt(v, decimals=4):
             try:
                 return f'{float(v):.{decimals}f}'
             except (TypeError, ValueError):
-                return str(v) if v is not None else '—'
+                return str(v) if v is not None else '\u2014'
+
+        def _fmt_row(nr, t_str, pid, is_winkel, hz, za, sd, x, y, z, comment=''):
+            flag = ' [W]' if is_winkel else '    '
+            pid_str = f'{(pid + flag):<18}'
+            hz_str = f'{hz:>12.4f}' if hz is not None else f'{"—":>12}'
+            za_str = f'{za:>11.4f}' if za is not None else f'{"—":>11}'
+            sd_str = f'{sd:>10.4f}' if sd is not None else f'{"—":>10}'
+            x_str  = f'{x:>12.4f}'  if x  is not None else f'{"—":>12}'
+            y_str  = f'{y:>12.4f}'  if y  is not None else f'{"—":>12}'
+            z_str  = f'{z:>10.4f}'  if z  is not None else f'{"—":>10}'
+            cmt_str = f'  {comment}' if comment else ''
+            return f'  {nr:>4}  {t_str}  {pid_str}  {hz_str}  {za_str}  {sd_str}  {x_str}  {y_str}  {z_str}{cmt_str}'
+
+        TBL_HDR = ('   Nr.  Zeit      Pkt-Nr.               '
+                   '  Hz(or.) [gon]  ZA [gon]   '
+                   '  SD [m]       X [m]        Y [m]      Z [m]'
+                   '  Kommentar')
+        TBL_SEP = ('  ' + '-'*4 + '  ' + '-'*8 + '  ' + '-'*18 + '  '
+                   + '-'*12 + '  ' + '-'*11 + '  ' + '-'*10 + '  '
+                   + '-'*12 + '  ' + '-'*12 + '  ' + '-'*10)
 
         meta = self._protokoll_meta
         lines = []
         lines.append(SEP)
-        lines.append('  QGIS Sokkia Plugin  —  Messprotokoll')
+        lines.append('  QGIS Sokkia Plugin  \u2014  Messprotokoll')
         lines.append(SEP)
         lines.append(f"  Erstellt am  : {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
         lines.append(f"  Sitzungsstart: {meta.get('start', datetime.now()).strftime('%d.%m.%Y %H:%M:%S')}")
-        lines.append(f"  Gerät        : {meta.get('device', '?')}")
+        lines.append(f"  Ger\u00e4t        : {meta.get('device', '?')}")
         lines.append(f"  Port / Baud  : {meta.get('port', '?')}  /  {meta.get('baudrate', '?')}")
         lines.append(f"  Koordinaten  : {meta.get('crs', '?')}")
         lines.append(SEP)
@@ -1029,31 +1094,48 @@ class QGISSokkia:
 
         n_station = sum(1 for e in self._protokoll if e['typ'] == 'STATIONIERUNG')
         n_messung = sum(1 for e in self._protokoll if e['typ'] == 'MESSUNG')
-        lines.append(f'  Stationierungen: {n_station}    Messungen: {n_messung}')
+        n_winkel  = sum(1 for e in self._protokoll if e['typ'] == 'WINKELMESSUNG')
+        lines.append(f'  Stationierungen: {n_station}    Messungen: {n_messung}    Winkelmessungen: {n_winkel}')
         lines.append('')
 
         current_station = None
         station_nr = 0
         messung_nr = 0
+        in_table = False
+
+        def _open_table():
+            nonlocal in_table
+            lines.append('')
+            lines.append(TBL_HDR)
+            lines.append(TBL_SEP)
+            in_table = True
+
+        def _close_table():
+            nonlocal in_table
+            if in_table:
+                lines.append(TBL_SEP)
+                lines.append('')
+                in_table = False
 
         for entry in self._protokoll:
-            t = entry['time'].strftime('%H:%M:%S.%f')[:-3]
+            t = entry['time'].strftime('%H:%M:%S')
             typ = entry['typ']
+
             if typ == 'VERBINDUNG':
+                _close_table()
                 lines.append(f'[{t}] VERBINDUNG')
                 lines.append(f"  {entry['text']}")
                 lines.append('')
+
             elif typ == 'STATIONIERUNG':
+                _close_table()
                 station_nr += 1
+                messung_nr = 0
                 d = entry.get('data', {})
                 lines.append(SEP2)
-                lines.append(f'[{t}] STATIONIERUNG #{station_nr}')
-                lines.append(f"  Standpunkt-Nr.    : {d.get('sp_id','?')}")
-                lines.append(f"  Rechts (X)        : {fmt(d.get('x'))} m")
-                lines.append(f"  Hoch   (Y)        : {fmt(d.get('y'))} m")
-                lines.append(f"  Höhe   (H)        : {fmt(d.get('h'))} m")
-                lines.append(f"  Instrumentenhöhe  : {fmt(d.get('ih'))} m")
-                lines.append(f"  Orientierung z0   : {fmt(d.get('orientation_gon'))} gon")
+                lines.append(f'[{t}] STATIONIERUNG #{station_nr}  \u2014  Standpunkt: {d.get("sp_id","?")}')
+                lines.append(f"  X: {fmt(d.get('x'))} m    Y: {fmt(d.get('y'))} m    H: {fmt(d.get('h'))} m    "
+                             f"ih: {fmt(d.get('ih'))} m    z\u2080: {fmt(d.get('orientation_gon'))} gon")
                 res = d.get('resection')
                 if res:
                     pts = res.get('points', [])
@@ -1062,26 +1144,23 @@ class QGISSokkia:
                     z0_gon_res = res.get('z0_gon', 0)
                     mode = res.get('mode', 'standard')
                     mode_label = "Erweitert (konform)" if mode == "extended" else "Standard (klassisch)"
-                    lines.append(f"  [Freie Stationierung  —  {mode_label}  —  {len(pts)} Anschlusspunkte]")
-                    lines.append(f"  Orientierung z₀   : {z0_gon_res:.4f} gon")
+                    lines.append(f"  [Freie Stationierung  \u2014  {mode_label}  \u2014  {len(pts)} Anschlusspunkte]")
+                    lines.append(f"  Orientierung z\u2080   : {z0_gon_res:.4f} gon")
                     lines.append(f"  Genauigkeit:  "
-                                 f"σX: ±{std[0]:.4f} m   "
-                                 f"σY: ±{std[1]:.4f} m   "
-                                 f"σZ: ±{std[2]:.4f} m")
+                                 f"\u03c3X: \u00b1{std[0]:.4f} m   "
+                                 f"\u03c3Y: \u00b1{std[1]:.4f} m   "
+                                 f"\u03c3Z: \u00b1{std[2]:.4f} m")
                     if mode == "extended":
-                        # Varianzfaktor ist dimensionslos (σ₀ ≈ 1 bei korrekten a-priori Sigmen)
-                        lines.append(f"  σ₀ (Varianzfaktor): {res.get('sigma0', 0):.4f}   "
+                        lines.append(f"  \u03c3\u2080 (Varianzfaktor): {res.get('sigma0', 0):.4f}   "
                                      f"Freiheitsgrade f: {res.get('dof', 0)}   "
                                      f"Redundanz: {redundancy:.4f}")
                     else:
-                        lines.append(f"  σ₀ (a-posteriori) : {res.get('sigma0', 0):.4f} m   "
+                        lines.append(f"  \u03c3\u2080 (a-posteriori) : {res.get('sigma0', 0):.4f} m   "
                                      f"Freiheitsgrade f: {res.get('dof', 0)}   "
                                      f"Redundanz: {redundancy:.4f}")
-                    # Erweiterte Parameter bei Modus "extended"
                     if mode == "extended":
                         lines.append(f"  Beobachtungen     : {res.get('num_obs', '?')}   "
                                      f"Unbekannte: {res.get('num_unknowns', '?')}")
-                        # RMS pro Beobachtungstyp aus Per-Punkt-Daten berechnen
                         _sd_res = [p['sd_res_mm'] for p in pts if 'sd_res_mm' in p]
                         _hz_res = [p['hz_res_mgon'] for p in pts if 'hz_res_mgon' in p]
                         _za_res = [p['za_res_mgon'] for p in pts if 'za_res_mgon' in p]
@@ -1095,18 +1174,18 @@ class QGISSokkia:
                         scale_sd = res.get('scale_sd')
                         add_sd = res.get('add_sd')
                         if scale_sd is not None:
-                            lines.append(f"  Maßstab (SD)      : {scale_sd:.8f}")
+                            lines.append(f"  Ma\u00dfstab (SD)      : {scale_sd:.8f}")
                         if add_sd is not None:
                             lines.append(f"  Additionskonst.(SD): {add_sd*1000.0:.2f} mm")
                         scale_hd = res.get('scale_hd')
                         add_hd = res.get('add_hd')
                         if scale_hd is not None:
-                            lines.append(f"  Maßstab (HD)      : {scale_hd:.8f}")
+                            lines.append(f"  Ma\u00dfstab (HD)      : {scale_hd:.8f}")
                         if add_hd is not None:
                             lines.append(f"  Additionskonst.(HD): {add_hd*1000.0:.2f} mm")
                         ih_res = res.get('instrument_height')
                         if ih_res is not None:
-                            lines.append(f"  Instrumentenhöhe  : {ih_res:.4f} m")
+                            lines.append(f"  Instrumentenh\u00f6he  : {ih_res:.4f} m")
                         k = res.get('refraction_coefficient')
                         R = res.get('earth_radius')
                         if k is not None:
@@ -1117,11 +1196,11 @@ class QGISSokkia:
                         sig_hz = res.get('sigma_hz_mgon')
                         sig_za = res.get('sigma_za_mgon')
                         if sig_sd is not None or sig_hz is not None or sig_za is not None:
-                            lines.append(f"  A-priori σ        : "
+                            lines.append(f"  A-priori \u03c3        : "
                                          f"SD={sig_sd:.1f} mm   "
                                          f"Hz={sig_hz:.2f} mgon   "
                                          f"ZA={sig_za:.2f} mgon")
-                    lines.append(f"  [Schwellwerte BW:  vHz ±20*/±50**,  vSD ±20*/±50** mm,  vZA ±20*/±50** mgon]")
+                    lines.append(f"  [Schwellwerte BW:  vHz \u00b120*/\u00b150**,  vSD \u00b120*/\u00b150** mm,  vZA \u00b120*/\u00b150** mgon]")
                     lines.append('')
                     lines.append(f"  {'Punkt':<14}  {'X-AP [m]':>14}  {'Y-AP [m]':>14}  {'Z-AP [m]':>9}  "
                                  f"{'Hz [gon]':>10}  {'t [gon]':>10}  {'vHz [mgon]':>10}  "
@@ -1150,42 +1229,47 @@ class QGISSokkia:
                             f"{pt['za_gon']:>10.4f}  {pt['za_calc']:>11.4f}  {za_m}"
                         )
                     lines.append('')
-                    lines.append(f"  Legende:  * = WARN (±20 mgon Hz, ±20 mm SD, ±20 mgon ZA)")
-                    lines.append(f"            ** = ERROR (±50 mgon Hz, ±50 mm SD, ±50 mgon ZA)")
+                    lines.append(f"  Legende:  * = WARN (\u00b120 mgon Hz, \u00b120 mm SD, \u00b120 mgon ZA)")
+                    lines.append(f"            ** = ERROR (\u00b150 mgon Hz, \u00b150 mm SD, \u00b150 mgon ZA)")
                     lines.append('')
                 else:
-                    lines.append(f"  Anschlussrichtung : {d.get('ap_id','—')}  "
+                    lines.append(f"  Anschlussrichtung : {d.get('ap_id','\u2014')}  "
                                  f"X={fmt(d.get('ap_x'))}  Y={fmt(d.get('ap_y'))}")
-                lines.append('')
                 current_station = d
-                messung_nr = 0
-            elif typ == 'MESSUNG':
+
+            elif typ == 'ZIELWECHSEL':
+                _close_table()
+                d = entry.get('data', {})
+                lines.append(f"  [{t}] ZIELWECHSEL  \u2014  Zieltyp: {d.get('target_type','?')}  "
+                             f"|  PK: {d.get('prism_const','?')} mm  "
+                             f"|  th: {fmt(d.get('th'))} m")
+
+            elif typ in ('MESSUNG', 'WINKELMESSUNG'):
+                if not in_table:
+                    _open_table()
                 messung_nr += 1
                 d = entry.get('data', {})
-                lines.append(f"[{t}] Messung #{messung_nr}  —  Pkt: {d.get('id','?')}")
-                if current_station:
-                    lines.append(f"  Standpunkt        : {current_station.get('sp_id','?')}")
-                lines.append(f"  Hz (Messwert)     : {fmt(d.get('ha_raw'))} gon")
-                lines.append(f"  Hz (orientiert)   : {fmt(d.get('ha_oriented'))} gon")
-                lines.append(f"  ZA (Zenitwinkel)  : {fmt(d.get('za'))} gon")
-                lines.append(f"  SD (Schrägdistanz): {fmt(d.get('sd'))} m")
-                lines.append(f"  HD (Horizontaldist): {fmt(d.get('hd'))} m")
-                lines.append(f"  Zielh. (th)       : {fmt(d.get('th'))} m")
-                lines.append(f"  Prismenkonstante  : {fmt(d.get('prism_const'),1)} mm")
-                lines.append(f"  Ber. X (Rechts)   : {fmt(d.get('x'))} m")
-                lines.append(f"  Ber. Y (Hoch)     : {fmt(d.get('y'))} m")
-                lines.append(f"  Ber. Z (Höhe)     : {fmt(d.get('z'))} m")
-                lines.append('')
+                is_winkel = (typ == 'WINKELMESSUNG')
+                hz = d.get('ha_oriented') if d.get('ha_oriented') is not None else d.get('hz_gon')
+                za = d.get('za')
+                sd = d.get('sd') if not is_winkel else None
+                x  = d.get('x')  if not is_winkel else None
+                y  = d.get('y')  if not is_winkel else None
+                z  = d.get('z')  if not is_winkel else None
+                comment = d.get('comment', '') or ''
+                lines.append(_fmt_row(messung_nr, t, d.get('id', '?'), is_winkel,
+                                      hz, za, sd, x, y, z, comment))
+
             elif typ == 'TRENNUNG':
+                _close_table()
                 lines.append(SEP2)
                 lines.append(f'[{t}] TRENNUNG')
                 lines.append('')
-            else:
-                lines.append(f"[{t}] {typ}: {entry['text']}")
-                lines.append('')
 
+        _close_table()
         lines.append(SEP)
-        lines.append(f'  Ende des Protokolls  —  {n_station} Stationierung(en)  /  {n_messung} Messung(en)')
+        lines.append(f'  Ende des Protokolls  \u2014  {n_station} Stationierung(en)  /  '
+                     f'{n_messung} Messung(en)  /  {n_winkel} Winkelmessung(en)')
         lines.append(SEP)
 
         with open(filepath, 'w', encoding='utf-8') as f:
@@ -1591,6 +1675,11 @@ class QGISSokkia:
                             print(f"[Kanal] consume_measurement: {ke}")
                     else:
                         self.addMPoint(sd, za, ha)
+                else:
+                    # Reine Winkelmessung – nur speichern wenn Capture-Flag gesetzt
+                    if self._capture_next_angle:
+                        self._capture_next_angle = False
+                        self.addAngleMeasurement(za, ha)
                 if self.dockwidget:
                     self.dockwidget.lbl_ha.setText(f"HZ: {self.measureValues['ha']:.4f} gon")
                     self.dockwidget.lbl_za.setText(f"VZ: {self.measureValues['za']:.4f} gon")
@@ -1720,6 +1809,7 @@ class QGISSokkia:
 
             # Speichern: automatisch oder mit Abfrage
             auto_save = self._zielpunkt_dlg.cb_auto_save.isChecked()
+            save_comment = ''
             if auto_save:
                 save_id = targetid
                 do_save = True
@@ -1730,7 +1820,7 @@ class QGISSokkia:
                     parent=self.iface.mainWindow()
                 )
                 if dlg.exec_() == QDialog.Accepted:
-                    save_id, th = dlg.get_values()
+                    save_id, th, save_comment = dlg.get_values()
                     # Z neu berechnen falls Zielhöhe geändert
                     z = self.sp['H'] + self.sp['ih'] + sd * math.cos(za * math.pi / 200) - th
                     do_save = save_id.strip() != ''
@@ -1753,6 +1843,7 @@ class QGISSokkia:
                     'calc_y': y,
                     'calc_z': z,
                     'prism_const': prism_constant,
+                    'Kommentar': save_comment if save_comment else None,
                 })
                 print('Punkt gespeichert:', save_id)
                 # Regelbasierten Stil prüfen/erweitern falls neuer Punkttyp
@@ -1761,11 +1852,12 @@ class QGISSokkia:
                 self.mlayer.triggerRepaint()
                 self._center_map(x, y)
                 # Protokoll-Eintrag
-                self._protokoll_add('MESSUNG', '', )
+                self._protokoll_add('MESSUNG', '')
                 self._protokoll[-1]['data'] = {
                     'id': save_id, 'ha_raw': ha_raw_proto, 'ha_oriented': ha,
                     'za': za, 'sd': sd, 'hd': hd, 'th': th,
                     'prism_const': prism_constant, 'x': x, 'y': y, 'z': z,
+                    'comment': save_comment,
                 }
                 self._autosave_protokoll()
                 # Autoinkrement nur wenn Punkt wirklich gespeichert
@@ -1774,7 +1866,73 @@ class QGISSokkia:
                     self._zielpunkt_dlg.input_targetid.setText(newid)
         except Exception as e:
             print(e)
-    
+
+    def addAngleMeasurement(self, za, ha):
+        """Speichert eine reine Winkelmessung (ohne Koordinatenberechnung) im Messlayer."""
+        if self.mlayer is None:
+            return
+        try:
+            ha_raw_proto = ha % 400
+            ha_oriented = _normalize_gon(ha + self.orientation * 200.0 / math.pi)
+
+            targetid = self._zielpunkt_dlg.input_targetid.text() if self._zielpunkt_dlg else 'W'
+            auto_save = self._zielpunkt_dlg.cb_auto_save.isChecked() if self._zielpunkt_dlg else True
+
+            save_comment = ''
+            if auto_save:
+                save_id = targetid
+                do_save = True
+            else:
+                dlg = SaveAngleMeasurementDialog(
+                    targetid, ha_oriented, za,
+                    parent=self.iface.mainWindow()
+                )
+                if dlg.exec_() == QDialog.Accepted:
+                    save_id, save_comment = dlg.get_values()
+                    do_save = save_id.strip() != ''
+                else:
+                    do_save = False
+
+            if do_save:
+                # Winkelmessung ohne Geometrie speichern
+                flds = self.mlayer.fields()
+                feat = QgsFeature(flds)
+                feat.setGeometry(QgsGeometry())  # keine Geometrie
+                attrs = [None] * flds.count()
+                field_values = {
+                    'Punktnummer': save_id,
+                    'Typ': 'Winkelmessung',
+                    'Standpunkt': self.sp['ID'],
+                    'Recordtime': QDateTime.currentDateTime(),
+                    'mess_za': za,
+                    'mess_ha': ha_oriented,
+                    'Kommentar': save_comment if save_comment else None,
+                }
+                for name, val in field_values.items():
+                    idx = flds.indexFromName(name)
+                    if idx >= 0 and val is not None:
+                        attrs[idx] = val
+                feat.setAttributes(attrs)
+                self.mlayer.dataProvider().addFeature(feat)
+                self.mlayer.triggerRepaint()
+                print('Winkelmessung gespeichert:', save_id, f'Hz={ha_oriented:.4f} ZA={za:.4f}')
+                # Protokoll-Eintrag
+                self._protokoll_add('WINKELMESSUNG', '')
+                self._protokoll[-1]['data'] = {
+                    'id': save_id, 'ha_raw': ha_raw_proto, 'ha_oriented': ha_oriented,
+                    'za': za, 'comment': save_comment,
+                }
+                self._autosave_protokoll()
+                # Autoinkrement falls aktiv
+                if self._zielpunkt_dlg and self._zielpunkt_dlg.cb_autoincerement.isChecked():
+                    import re
+                    match = re.search(r'[\.\-_]([^.\-_]+)$', save_id)
+                    if match and match.group(1).isdigit():
+                        newid = save_id[:-len(match.group(1))] + str(int(match.group(1)) + 1)
+                        self._zielpunkt_dlg.input_targetid.setText(newid)
+        except Exception as e:
+            print(f"[addAngleMeasurement] {e}")
+
     def addStation(self):
         if self.mlayer is None:
             self.iface.messageBar().pushWarning("Standpunkt", "Kein Punkt-Layer vorhanden – bitte zuerst verbinden.")
@@ -2135,10 +2293,22 @@ class QGISSokkia:
         self.serial.write(command)  
         self.serial.write(command2) 
         
-        status_text = f"Zieltyp: {targetType}  |  th: {float(self._zielpunkt_dlg.input_th.text()):.3f} m  |  PK: {self.targetPrismConstant}"
+        try:
+            th_val = float(self._zielpunkt_dlg.input_th.text())
+        except ValueError:
+            th_val = 0.0
+        status_text = f"Zieltyp: {targetType}  |  th: {th_val:.3f} m  |  PK: {self.targetPrismConstant}"
         self.dockwidget.lbl_target.setText(status_text)
         self._zielpunkt_dlg.lbl_target_dialog.setText(status_text)
         self._update_target_display(targetType, self.targetPrismConstant, is_set=True)
+        # Protokoll-Eintrag für Zielwechsel
+        self._protokoll_add('ZIELWECHSEL', '')
+        self._protokoll[-1]['data'] = {
+            'target_type': targetType,
+            'prism_const': self.targetPrismConstant,
+            'th': th_val,
+        }
+        self._autosave_protokoll()
         self._zielpunkt_dlg.hide()
         
         
@@ -2152,7 +2322,12 @@ class QGISSokkia:
     def mesaure_angle(self):
         print('Winkelmessung')
         command = bytes([0x13])
-        self.serial.write(command)   
+        self.serial.write(command)
+
+    def _measure_angle_capture(self):
+        """Löst eine Winkelmessung aus und markiert sie zum Speichern."""
+        self._capture_next_angle = True
+        self.mesaure_angle()
     
     def mesaure_stop(self):
         print('Messung stoppen')
@@ -2161,17 +2336,62 @@ class QGISSokkia:
 
     def open_test_measurement_dialog(self):
         """Öffnet den Dialog für Test-Messungen."""
-        # Überprüfung: Ist ein Standpunkt gesetzt?
         if not self.sp or self.sp.get('ID') == "SP":
             self.iface.messageBar().pushWarning(
                 "Test-Messung",
                 "Bitte zuerst einen Standpunkt setzen."
             )
             return
-        
+
         dlg = TestMeasurementDialog(parent=self.iface.mainWindow())
-        if dlg.exec_() == QDialog.Accepted:
-            test_data = dlg.get_test_measurement()
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        test_data = dlg.get_test_measurement()
+
+        if test_data.get('angle_only'):
+            # Nur Richtungsmessung: SaveAngleMeasurementDialog öffnen
+            ha_oriented = _normalize_gon(test_data['hz_gon'])
+            za = test_data['za_gon']
+            save_dlg = SaveAngleMeasurementDialog(
+                test_data['point_id'], ha_oriented, za,
+                parent=self.iface.mainWindow()
+            )
+            if save_dlg.exec_() == QDialog.Accepted:
+                save_id, save_comment = save_dlg.get_values()
+                if save_id.strip():
+                    flds = self.mlayer.fields()
+                    feat = QgsFeature(flds)
+                    feat.setGeometry(QgsGeometry())
+                    attrs = [None] * flds.count()
+                    field_values = {
+                        'Punktnummer': save_id,
+                        'Typ': 'Winkelmessung',
+                        'Standpunkt': self.sp['ID'],
+                        'Recordtime': QDateTime.currentDateTime(),
+                        'mess_za': za,
+                        'mess_ha': ha_oriented,
+                        'Kommentar': save_comment if save_comment else '[Test-Messung]',
+                    }
+                    for name, val in field_values.items():
+                        idx = flds.indexFromName(name)
+                        if idx >= 0 and val is not None:
+                            attrs[idx] = val
+                    feat.setAttributes(attrs)
+                    self.mlayer.dataProvider().addFeature(feat)
+                    self.mlayer.triggerRepaint()
+                    self._protokoll_add('WINKELMESSUNG', '')
+                    self._protokoll[-1]['data'] = {
+                        'id': save_id,
+                        'ha_raw': test_data['hz_gon'] % 400,
+                        'ha_oriented': ha_oriented,
+                        'za': za,
+                        'comment': save_comment if save_comment else '[Test-Messung]',
+                    }
+                    self._autosave_protokoll()
+                    self.iface.messageBar().pushSuccess(
+                        "Test-Richtungsmessung",
+                        f"Richtungsmessung '{save_id}' gespeichert.")
+        else:
             self._perform_test_measurement(test_data)
 
     def _perform_test_measurement(self, test_data: dict):
@@ -2239,6 +2459,7 @@ class QGISSokkia:
                 'calc_x': x,
                 'calc_y': y,
                 'calc_z': z,
+                'Kommentar': '[Test-Messung]',
             })
             
             # Regel für diesen Punkt-Typ registrieren (falls Messung mit Präfix)
@@ -2248,15 +2469,18 @@ class QGISSokkia:
             # Protokoll-Eintrag
             self._protokoll_add('MESSUNG', '')
             self._protokoll[-1]['data'] = {
-                'standpunkt': self.sp['ID'],
-                'punktnummer': point_id,
-                'hz_gon': hz_gon,
-                'za_gon': za_gon,
-                'sd_m': sd_m,
+                'id': point_id,
+                'ha_raw': hz_gon % 400,
+                'ha_oriented': hz_gon,
+                'za': za_gon,
+                'sd': sd_m,
+                'hd': hd,
+                'th': th,
+                'prism_const': 0,
                 'x': x,
                 'y': y,
                 'z': z,
-                'test': True,  # Markieren als Test-Messung
+                'comment': '[Test-Messung]',
             }
             self._autosave_protokoll()
             
@@ -2666,132 +2890,20 @@ class QGISSokkia:
         dlg.exec_()
 
     def _format_protokoll_for_viewer(self) -> str:
-        """Formatiert das aktuelle Protokoll als Text für den Viewer."""
-        # Nutze die existierende Protokoll-Schreib-Funktion, um den Text zu generieren
-        from io import StringIO
-        
-        SEP  = '=' * 80
-        SEP2 = '-' * 80
-
-        def fmt(v, decimals=4):
-            try:
-                return f'{float(v):.{decimals}f}'
-            except (TypeError, ValueError):
-                return str(v) if v is not None else '—'
-
-        meta = self._protokoll_meta
-        lines = []
-        lines.append(SEP)
-        lines.append('  QGIS Sokkia Plugin  —  Messprotokoll')
-        lines.append(SEP)
-        lines.append(f"  Erstellt am  : {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}")
-        lines.append(f"  Sitzungsstart: {meta.get('start', datetime.now()).strftime('%d.%m.%Y %H:%M:%S')}")
-        lines.append(f"  Gerät        : {meta.get('device', '?')}")
-        lines.append(f"  Port / Baud  : {meta.get('port', '?')}  /  {meta.get('baudrate', '?')}")
-        lines.append(f"  Koordinaten  : {meta.get('crs', '?')}")
-        lines.append(SEP)
-        lines.append('')
-
-        n_station = sum(1 for e in self._protokoll if e['typ'] == 'STATIONIERUNG')
-        n_messung = sum(1 for e in self._protokoll if e['typ'] == 'MESSUNG')
-        lines.append(f'  Stationierungen: {n_station}    Messungen: {n_messung}')
-        lines.append('')
-
-        current_station = None
-        station_nr = 0
-        messung_nr = 0
-
-        for entry in self._protokoll:
-            t = entry['time'].strftime('%H:%M:%S.%f')[:-3]
-            typ = entry['typ']
-            if typ == 'VERBINDUNG':
-                lines.append(f'[{t}] VERBINDUNG')
-                lines.append(f"  {entry['text']}")
-                lines.append('')
-            elif typ == 'STATIONIERUNG':
-                station_nr += 1
-                d = entry.get('data', {})
-                lines.append(SEP2)
-                lines.append(f'[{t}] STATIONIERUNG #{station_nr}')
-                lines.append(f"  Standpunkt-Nr.    : {d.get('sp_id','?')}")
-                lines.append(f"  Rechts (X)        : {fmt(d.get('x'))} m")
-                lines.append(f"  Hoch   (Y)        : {fmt(d.get('y'))} m")
-                lines.append(f"  Höhe   (H)        : {fmt(d.get('h'))} m")
-                lines.append(f"  Instrumentenhöhe  : {fmt(d.get('ih'))} m")
-                lines.append(f"  Orientierung z0   : {fmt(d.get('orientation_gon'))} gon")
-                res = d.get('resection')
-                if res:
-                    pts = res.get('points', [])
-                    std = res.get('std_dev', [0, 0, 0])
-                    redundancy = res.get('redundancy', 0)
-                    z0_gon_res = res.get('z0_gon', 0)
-                    mode = res.get('mode', 'standard')
-                    mode_label = "Erweitert (konform)" if mode == "extended" else "Standard (klassisch)"
-                    lines.append(f"  [Freie Stationierung  —  {mode_label}  —  {len(pts)} Anschlusspunkte]")
-                    lines.append(f"  Orientierung z₀   : {z0_gon_res:.4f} gon")
-                    lines.append(f"  Genauigkeit:  σX: ±{fmt(std[0], 4)} m   σY: ±{fmt(std[1], 4)} m   σZ: ±{fmt(std[2], 4)} m")
-                    sigma0 = res.get('sigma0', 0)
-                    dof = res.get('dof', 0)
-                    lines.append(f"  σ₀ (Varianzfaktor): {fmt(sigma0, 4)}   Freiheitsgrade f: {dof}   Redundanz: {redundancy:.4f}")
-                    num_obs = res.get('num_obs', 0)
-                    num_unknowns = res.get('num_unknowns', 0)
-                    lines.append(f"  Beobachtungen     : {num_obs}   Unbekannte: {num_unknowns}")
-                    # RMS Residuen aus Per-Punkt-Daten berechnen
-                    _sd_res = [p['sd_res_mm'] for p in pts if 'sd_res_mm' in p]
-                    _hz_res = [p['hz_res_mgon'] for p in pts if 'hz_res_mgon' in p]
-                    _za_res = [p['za_res_mgon'] for p in pts if 'za_res_mgon' in p]
-                    rms_sd = math.sqrt(sum(v**2 for v in _sd_res) / max(len(_sd_res), 1)) if _sd_res else 0
-                    rms_hz = math.sqrt(sum(v**2 for v in _hz_res) / max(len(_hz_res), 1)) if _hz_res else 0
-                    rms_za = math.sqrt(sum(v**2 for v in _za_res) / max(len(_za_res), 1)) if _za_res else 0
-                    lines.append(f"  RMS Residuen      : SD={rms_sd:.2f} mm   Hz={rms_hz:.2f} mgon   ZA={rms_za:.2f} mgon")
-                    lines.append(f"  Instrumentenhöhe  : {fmt(res.get('ih'))} m")
-                    lines.append(f"  Refraktionskoeff. : {fmt(res.get('refraction_coefficient'), 4)}")
-                    lines.append(f"  Erdradius         : {res.get('earth_radius', 0)} m")
-                    lines.append(f"  A-priori σ        : SD={fmt(res.get('sigma_sd_mm', 0)/1000, 3)} m   Hz={fmt(res.get('sigma_hz_mgon'), 2)} mgon   ZA={fmt(res.get('sigma_za_mgon'), 2)} mgon")
-                    lines.append(f"  [Schwellwerte BW:  vHz ±20*/±50**,  vSD ±20*/±50** mm,  vZA ±20*/±50** mgon]")
-                    lines.append('')
-                    lines.append('  Punkt                 X-AP [m]        Y-AP [m]   Z-AP [m]    Hz [gon]     t [gon]  vHz [mgon]     SD [m]  SDber [m]  vSD [mm]    ZA [gon]  ZAber [gon]  vZA [mgon]')
-                    lines.append('  ' + '-' * 118)
-                    for pt in pts:
-                        ap_x = fmt(pt.get('ap_x'), 4)
-                        ap_y = fmt(pt.get('ap_y'), 4)
-                        ap_z = fmt(pt.get('ap_z'), 4)
-                        hz = fmt(pt.get('hz_gon'), 4)
-                        t = fmt(pt.get('t_gon'), 4)
-                        vhz = f"{pt.get('hz_res_mgon', 0):+.1f}"
-                        sd = fmt(pt.get('sd_m'), 4)
-                        sd_calc = fmt(pt.get('sd_calc'), 4)
-                        vsd = f"{pt.get('sd_res_mm', 0):+.1f}"
-                        za = fmt(pt.get('za_gon'), 4)
-                        za_calc = fmt(pt.get('za_calc'), 4)
-                        vza = f"{pt.get('za_res_mgon', 0):+.1f}"
-                        lines.append(f"  {pt.get('name', '?'):20} {ap_x:>14} {ap_y:>14} {ap_z:>9} {hz:>10} {t:>10} {vhz:>9} {sd:>9} {sd_calc:>9} {vsd:>8} {za:>10} {za_calc:>11} {vza:>10}")
-                lines.append('')
-            elif typ == 'MESSUNG':
-                messung_nr += 1
-                d = entry.get('data', {})
-                lines.append(f'[{t}] MESSUNG #{messung_nr}')
-                if d:
-                    lines.append(f"  Standpunkt: {d.get('standpunkt', '?')}  Punkt-Nr.: {d.get('punktnummer', '?')}")
-                    lines.append(f"  Messwerte: Hz={fmt(d.get('hz_gon'))} gon  ZA={fmt(d.get('za_gon'))} gon  SD={fmt(d.get('sd_m'))} m")
-                    lines.append(f"  Berechnete Koordinaten: X={fmt(d.get('x'))} m  Y={fmt(d.get('y'))} m  Z={fmt(d.get('z'))} m")
-                lines.append('')
-            elif typ == 'TRENNUNG':
-                lines.append(f'[{t}] TRENNUNG')
-                lines.append(f"  {entry['text']}")
-                lines.append('')
-            else:
-                # Andere Typen
-                if entry['text']:
-                    lines.append(f'[{t}] {typ}')
-                    lines.append(f"  {entry['text']}")
-                    lines.append('')
-
-        lines.append(SEP)
-        lines.append(f"  Ende des Protokolls  —  {n_station} Stationierung(en)  /  {n_messung} Messung(en)")
-        lines.append(SEP)
-        
-        return '\n'.join(lines)
+        """Formatiert das aktuelle Protokoll als Text f\u00fcr den Viewer.
+        Delegiert an _write_protokoll_to_file via tempor\u00e4rer Datei."""
+        import tempfile
+        try:
+            with tempfile.NamedTemporaryFile(
+                    mode='w', suffix='.txt', delete=False, encoding='utf-8') as tmp:
+                tmp_path = tmp.name
+            self._write_protokoll_to_file(tmp_path)
+            with open(tmp_path, 'r', encoding='utf-8') as f:
+                text = f.read()
+            os.unlink(tmp_path)
+            return text
+        except Exception as e:
+            return f'[Fehler beim Formatieren des Protokolls: {e}]'
 
     def _apply_resection_result(self, x: float, y: float, z: float, z0_rad: float, resection_details: dict = None):
         """
@@ -2996,7 +3108,7 @@ class QGISSokkia:
 
             #Mess buttons
             self.dockwidget.btn_measure.clicked.connect(self.mesaure)
-            self.dockwidget.btn_measure_a.clicked.connect(self.mesaure_angle)
+            self.dockwidget.btn_measure_a.clicked.connect(self._measure_angle_capture)
             self.dockwidget.btn_measure_stop.clicked.connect(self.mesaure_stop)
             self.dockwidget.btn_test_measurement.clicked.connect(self.open_test_measurement_dialog)
 
