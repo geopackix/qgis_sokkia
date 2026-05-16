@@ -219,7 +219,7 @@ class TransferDialog(QDialog):
 
         # Schließen
         self.btn_close = QPushButton("Schließen")
-        layout.addWidget(self.btn_close, alignment=Qt.AlignRight)
+        layout.addWidget(self.btn_close, alignment=Qt.AlignmentFlag.AlignRight)
 
         # ── Signale ───────────────────────────────────────────────────
         self.layer_combo.layerChanged.connect(self._on_layer_changed)

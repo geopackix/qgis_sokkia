@@ -248,12 +248,12 @@ class ResectionDialog(QDialog):
             "th [m]",
         ])
         hdr = self.table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(4, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(5, QHeaderView.Stretch)
+        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
         for col in (1, 2, 3, 6):
-            hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setMinimumHeight(150)
         # Spalte 'th [m]' nur im Modus 'Erweitert' sichtbar
         self.table.setColumnHidden(6, True)
@@ -392,12 +392,12 @@ class ResectionDialog(QDialog):
         self.lbl_z = QLabel("Z (Höhe):   —")
         self.lbl_z0 = QLabel("z₀: —")
         for lbl in (self.lbl_x, self.lbl_y, self.lbl_z, self.lbl_z0):
-            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setStyleSheet(
                 "font-weight: bold; font-size: 13px; padding: 6px; "
                 "border: 1px solid #ccc; border-radius: 4px; background: #f5f5f5;"
             )
-            lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             coord_row.addWidget(lbl)
         rl.addLayout(coord_row)
 
@@ -410,15 +410,15 @@ class ResectionDialog(QDialog):
         self.lbl_dof = QLabel("f: —")
         for lbl in (self.lbl_sx, self.lbl_sy, self.lbl_sz,
                     self.lbl_sigma0, self.lbl_dof):
-            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             lbl.setStyleSheet("color: #444; padding: 3px;")
             acc_row.addWidget(lbl)
         rl.addLayout(acc_row)
 
         # Trennlinie
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Sunken)
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
         rl.addWidget(sep)
 
         # Residualtabelle
@@ -436,11 +436,11 @@ class ResectionDialog(QDialog):
             "Hz t° [gon]",
         ])
         res_hdr = self.res_table.horizontalHeader()
-        res_hdr.setSectionResizeMode(0, QHeaderView.Stretch)
+        res_hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         for col in range(1, 6):
-            res_hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+            res_hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
         self.res_table.setMaximumHeight(180)
-        self.res_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.res_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.res_table.setAlternatingRowColors(True)
         rl.addWidget(self.res_table)
 
@@ -659,8 +659,8 @@ class ResectionDialog(QDialog):
         # Spalten 1–3: automatisch befüllt, schreibgeschützt
         for col in range(1, 4):
             item = QTableWidgetItem("—")
-            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-            item.setTextAlignment(Qt.AlignCenter)
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self.table.setItem(row, col, item)
 
         # Spalte 4: Anschlusspunkt (ComboBox)
@@ -674,12 +674,12 @@ class ResectionDialog(QDialog):
 
         # Spalte 5: bekannte Koordinaten (schreibgeschützt)
         coord_item = QTableWidgetItem("—")
-        coord_item.setFlags(coord_item.flags() & ~Qt.ItemIsEditable)
+        coord_item.setFlags(coord_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.table.setItem(row, 5, coord_item)
 
         # Spalte 6: Reflektorhöhe th [m] (editierbar, nur im Modus 'Erweitert')
         th_item = QTableWidgetItem("0.000")
-        th_item.setTextAlignment(Qt.AlignCenter)
+        th_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         self.table.setItem(row, 6, th_item)
 
     def _remove_row(self):
@@ -1106,7 +1106,7 @@ class ResectionDialog(QDialog):
             ]
             for col, text in enumerate(items):
                 it = QTableWidgetItem(text)
-                it.setTextAlignment(Qt.AlignCenter)
+                it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.res_table.setItem(r, col, it)
 
             # Auffällige Residuen rot/orange hinterlegen

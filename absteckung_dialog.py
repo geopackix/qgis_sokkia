@@ -56,7 +56,7 @@ class AbsteckungDialog(QDialog):
         super().__init__(parent)
         self._plugin = plugin          # Referenz auf QSokkiaPlugin-Instanz
         self.setWindowTitle("Absteckung")
-        self.setWindowFlags(Qt.Tool)
+        self.setWindowFlags(Qt.WindowType.Tool)
         self.setMinimumWidth(480)
         self._build_ui()
         self._on_layer_changed()
@@ -109,7 +109,7 @@ class AbsteckungDialog(QDialog):
 
         pl.addWidget(QLabel("Punkt:"))
         self._point_combo = QComboBox()
-        self._point_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._point_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._point_combo.currentIndexChanged.connect(self._update_result)
         pl.addWidget(self._point_combo)
 
@@ -210,8 +210,8 @@ class AbsteckungDialog(QDialog):
 
         # ── 5. Schaltflächen ──────────────────────────────────────────────────
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Sunken)
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
         root.addWidget(sep)
 
         btn_row = QHBoxLayout()

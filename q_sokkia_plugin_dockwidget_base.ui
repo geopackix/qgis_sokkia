@@ -46,6 +46,14 @@
          <item>
           <widget class="QComboBox" name="combo_port">
            <property name="toolTip"><string>Verf&#xFC;gbare serielle Ports</string></property>
+           <property name="styleSheet">
+            <string>QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #000000;
+    selection-background-color: #0078d7;
+    selection-color: #ffffff;
+}</string>
+           </property>
            <property name="sizePolicy">
             <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
              <horstretch>1</horstretch>

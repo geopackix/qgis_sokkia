@@ -72,7 +72,7 @@ class KanalmessstabDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Kanalmessstab – Verlängerter Punkt")
-        self.setWindowFlags(Qt.Tool)
+        self.setWindowFlags(Qt.WindowType.Tool)
         self.setMinimumWidth(420)
 
         # Zustand
@@ -95,7 +95,7 @@ class KanalmessstabDialog(QDialog):
         tl.setSpacing(4)
 
         self.lbl_target_status = QLabel("Zieltyp: — (noch nicht gesetzt)")
-        self.lbl_target_status.setAlignment(Qt.AlignCenter)
+        self.lbl_target_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_target_status.setStyleSheet(
             "font-weight: bold; font-size: 12px; padding: 6px; "
             "background: #eceff1; border: 1px solid #b0bec5; "
@@ -202,20 +202,20 @@ class KanalmessstabDialog(QDialog):
         rl.addWidget(self.lbl_dist)
 
         self.lbl_target = QLabel("Zielpunkt T:  —")
-        self.lbl_target.setAlignment(Qt.AlignCenter)
+        self.lbl_target.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_target.setStyleSheet(
             "font-weight: bold; font-size: 13px; padding: 8px; "
             "background: #fff8e1; border: 1px solid #ffd54f; "
             "border-radius: 4px;")
-        self.lbl_target.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.lbl_target.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         rl.addWidget(self.lbl_target)
 
         main.addWidget(grp_res)
 
         # Trennlinie
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFrameShadow(QFrame.Sunken)
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
         main.addWidget(sep)
 
         # ── Aktionen ──────────────────────────────────────────────────────

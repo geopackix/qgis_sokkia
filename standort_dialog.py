@@ -13,7 +13,7 @@ class StandortDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.setWindowFlags(Qt.Tool)
+        self.setWindowFlags(Qt.WindowType.Tool)
 
     def closeEvent(self, event):
         self.hide()

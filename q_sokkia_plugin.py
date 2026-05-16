@@ -20,8 +20,7 @@
  ***************************************************************************/
 """
 from qgis.PyQt.QtCore import QSettings, QTranslator, QCoreApplication, Qt, QVariant, QDateTime, QTimer, pyqtSignal
-from qgis.PyQt.QtGui import QIcon, QColor
-import sip
+from qgis.PyQt.QtGui import QIcon, QColor, QPalette
 import os
 import json
 import math
@@ -152,9 +151,9 @@ class SavePointDialog(QDialog):
 
         layout.addLayout(form)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Discard)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Discard)
         buttons.accepted.connect(self.accept)
-        discard_btn = buttons.button(QDialogButtonBox.Discard)
+        discard_btn = buttons.button(QDialogButtonBox.StandardButton.Discard)
         discard_btn.setText("Verwerfen")
         discard_btn.clicked.connect(self.reject)
         layout.addWidget(buttons)
@@ -199,9 +198,9 @@ class SaveAngleMeasurementDialog(QDialog):
 
         layout.addLayout(form)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Discard)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Discard)
         buttons.accepted.connect(self.accept)
-        discard_btn = buttons.button(QDialogButtonBox.Discard)
+        discard_btn = buttons.button(QDialogButtonBox.StandardButton.Discard)
         discard_btn.setText("Verwerfen")
         discard_btn.clicked.connect(self.reject)
         layout.addWidget(buttons)
@@ -439,14 +438,24 @@ class QGISSokkia:
         combo = self.dockwidget.combo_port
         previous = combo.currentText()
         combo.clear()
+        # Palette direkt auf die interne ListView setzen – funktioniert auch gegen QGIS-Themes
+        view = combo.view()
+        pal = view.palette()
+        pal.setColor(QPalette.ColorRole.Base,            QColor('#ffffff'))
+        pal.setColor(QPalette.ColorRole.Text,            QColor('#000000'))
+        pal.setColor(QPalette.ColorRole.Highlight,       QColor('#0078d7'))
+        pal.setColor(QPalette.ColorRole.HighlightedText, QColor('#ffffff'))
+        view.setPalette(pal)
         ports = sorted(serial.tools.list_ports.comports(), key=lambda p: p.device)
         for p in ports:
-            combo.addItem(p.device, p.description)
-            combo.setItemData(combo.count() - 1, f"{p.device} – {p.description}", Qt.ToolTipRole)
+            label = f"{p.device}  –  {p.description}" if p.description else p.device
+            combo.addItem(label, p.device)
         # Gespeicherten Port wiederherstellen
         saved = QSettings().value('qgis_sokkia/last_port', '')
         restore = saved if saved else previous
-        idx = combo.findText(restore)
+        idx = combo.findData(restore)
+        if idx < 0:
+            idx = combo.findText(restore)  # Fallback für alte gespeicherte Werte (nur device-Name)
         if idx >= 0:
             combo.setCurrentIndex(idx)
 
@@ -541,7 +550,7 @@ class QGISSokkia:
             print("connect to serial");
             
             
-            port = self.dockwidget.combo_port.currentText().strip()
+            port = (self.dockwidget.combo_port.currentData() or self.dockwidget.combo_port.currentText()).strip()
             if not port:
                 self.iface.messageBar().pushWarning("Verbindung", "Kein Port angegeben.")
                 return
@@ -969,10 +978,14 @@ class QGISSokkia:
         """Gibt True zurück, wenn self._layer_group noch auf ein gültiges C++-Objekt zeigt."""
         if self._layer_group is None:
             return False
-        if sip.isdeleted(self._layer_group):
+        try:
+            # Versuche, auf ein Attribut des Objekts zuzugreifen, um zu prüfen, ob es noch gültig ist
+            _ = self._layer_group.name()
+            return True
+        except RuntimeError:
+            # Objekt wurde gelöscht
             self._layer_group = None
             return False
-        return True
 
     def _add_temp_layers_into_group(self, group_name: str):
         """Fügt die temporären Layer dem Projekt hinzu und legt sie in eine neue Layer-Gruppe.
@@ -1347,15 +1360,15 @@ class QGISSokkia:
         lbl_status.setStyleSheet('color:#888; font-size:10px;')
         layout.addWidget(lbl_status)
 
-        btn_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, parent=dlg)
-        btn_box.button(QDialogButtonBox.Ok).setText('Protokoll erstellen')
+        btn_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, parent=dlg)
+        btn_box.button(QDialogButtonBox.StandardButton.Ok).setText('Protokoll erstellen')
         layout.addWidget(btn_box)
 
         def _validate_layer():
             layer = combo.currentLayer()
             if layer is None:
                 lbl_status.setText('Kein Layer ausgewählt.')
-                btn_box.button(QDialogButtonBox.Ok).setEnabled(False)
+                btn_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
                 return
             field_names = [f.name()[:10] for f in layer.fields()]
             required_prefixes = [f[:10] for f in self._REQUIRED_FIELDS]
@@ -1363,11 +1376,11 @@ class QGISSokkia:
             if missing:
                 lbl_status.setText(f'Fehlende Spalten: {", ".join(missing)}')
                 lbl_status.setStyleSheet('color:red; font-size:10px;')
-                btn_box.button(QDialogButtonBox.Ok).setEnabled(False)
+                btn_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(False)
             else:
                 lbl_status.setText(f'Layer OK – {layer.featureCount()} Feature(s)')
                 lbl_status.setStyleSheet('color:green; font-size:10px;')
-                btn_box.button(QDialogButtonBox.Ok).setEnabled(True)
+                btn_box.button(QDialogButtonBox.StandardButton.Ok).setEnabled(True)
 
         combo.layerChanged.connect(lambda _: _validate_layer())
         _validate_layer()
@@ -1375,7 +1388,7 @@ class QGISSokkia:
         btn_box.accepted.connect(dlg.accept)
         btn_box.rejected.connect(dlg.reject)
 
-        if dlg.exec_() != QDialog.Accepted:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
 
         layer = combo.currentLayer()
@@ -1903,7 +1916,7 @@ class QGISSokkia:
                     sd, za, self.sp['H'], self.sp['ih'],
                     parent=self.iface.mainWindow()
                 )
-                if dlg.exec_() == QDialog.Accepted:
+                if dlg.exec() == QDialog.DialogCode.Accepted:
                     save_id, th, save_comment = dlg.get_values()
                     # Z neu berechnen falls Zielhöhe geändert
                     z = self.sp['H'] + self.sp['ih'] + sd * math.cos(za * math.pi / 200) - th
@@ -1971,7 +1984,7 @@ class QGISSokkia:
                     targetid, ha_oriented, za,
                     parent=self.iface.mainWindow()
                 )
-                if dlg.exec_() == QDialog.Accepted:
+                if dlg.exec() == QDialog.DialogCode.Accepted:
                     save_id, save_comment = dlg.get_values()
                     do_save = save_id.strip() != ''
                 else:
@@ -2253,7 +2266,7 @@ class QGISSokkia:
         self.rubber_band.addPoint(end_point, True)
 
         # Setze die Farbe und Breite der Linie
-        self.rubber_band.setColor(Qt.red)
+        self.rubber_band.setColor(QColor(Qt.GlobalColor.red))
         self.rubber_band.setWidth(1)
         
         
@@ -2428,7 +2441,7 @@ class QGISSokkia:
             return
 
         dlg = TestMeasurementDialog(parent=self.iface.mainWindow())
-        if dlg.exec_() != QDialog.Accepted:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         test_data = dlg.get_test_measurement()
 
@@ -2440,7 +2453,7 @@ class QGISSokkia:
                 test_data['point_id'], ha_oriented, za,
                 parent=self.iface.mainWindow()
             )
-            if save_dlg.exec_() == QDialog.Accepted:
+            if save_dlg.exec() == QDialog.DialogCode.Accepted:
                 save_id, save_comment = save_dlg.get_values()
                 if save_id.strip():
                     flds = self.mlayer.fields()
@@ -2722,7 +2735,7 @@ class QGISSokkia:
             self._zielpunkt_dlg.radio_reflectorless.clicked.connect(self.selectTarget)
         # Modal über dem Kanalmessstab-Dialog öffnen
         self._zielpunkt_dlg.setModal(True)
-        self._zielpunkt_dlg.exec_()
+        self._zielpunkt_dlg.exec()
         self._zielpunkt_dlg.setModal(False)
         # Nach Schließen: Status aktualisieren
         self._refresh_target_status_in_kanalmessstab()
@@ -2934,10 +2947,10 @@ class QGISSokkia:
         dlg.input_ih.setText(ih_value if ih_value else "0.0")
         sp_id_value = self._standort_dlg.input_standpoint.text()
         dlg.input_sp_id.setText(sp_id_value if sp_id_value else "SP")
-        # Referenz zum standort_dialog für später schließen speichern
-        dlg._standort_dlg = self._standort_dlg
         dlg.result_accepted.connect(self._apply_resection_result)
-        dlg.exec_()
+        # Standort-Dialog schließen, bevor Freie Stationierung geöffnet wird
+        self._standort_dlg.hide()
+        dlg.exec()
 
     def open_transfer_dialog(self):
         """Öffnet den Koordinaten-Transfer-Dialog (Upload/Download)."""
@@ -2947,7 +2960,7 @@ class QGISSokkia:
             parent=self.iface.mainWindow(),
             transfer_mode_setter=self._set_transfer_mode,
         )
-        dlg.exec_()
+        dlg.exec()
 
     def _set_transfer_mode(self, active):
         """Aktiviert/deaktiviert den Transfermodus (pausiert readSerial)."""
@@ -2971,7 +2984,7 @@ class QGISSokkia:
             protokoll_file=self._protokoll_tempfile,
             parent=self.iface.mainWindow()
         )
-        dlg.exec_()
+        dlg.exec()
 
     def _format_protokoll_for_viewer(self) -> str:
         """Formatiert das aktuelle Protokoll als Text f\u00fcr den Viewer.
@@ -3216,5 +3229,5 @@ class QGISSokkia:
                 self._queue_timer.start(100)  # alle 100 ms prüfen
 
             # show the dockwidget
-            self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
+            self.iface.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.dockwidget)
             self.dockwidget.show()

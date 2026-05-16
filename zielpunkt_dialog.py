@@ -14,7 +14,7 @@ class ZielpunktDialog(QtWidgets.QDialog, FORM_CLASS):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
-        self.setWindowFlags(Qt.Tool)
+        self.setWindowFlags(Qt.WindowType.Tool)
         self._point_types = {}  # {label: {prefix, qml_file, description}}
         self._load_point_types()
         self.combo_point_type.currentIndexChanged.connect(self._on_point_type_changed)

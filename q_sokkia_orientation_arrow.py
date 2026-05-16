@@ -1,5 +1,5 @@
 from qgis.core import QgsPointXY, QgsPoint, QgsWkbTypes, QgsVectorLayer, QgsFeature, QgsGeometry, QgsProject, QgsField, QgsFields
-from PyQt5.QtCore import QVariant
+from qgis.PyQt.QtCore import QVariant
 import os
 class OrientationArrow:
     

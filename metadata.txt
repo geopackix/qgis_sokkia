@@ -4,9 +4,9 @@
 
 [general]
 name=QGIS Sokkia Plugin
-qgisMinimumVersion=3.0
+qgisMinimumVersion=4.0
 description=QGIS plugin to connect a sokkia tachymeter (sdr)
-version=0.1
+version=0.2
 author=Manuel Hart (geokoord.com)
 email=mh@geokoord.com
 
